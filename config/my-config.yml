@@ -1,12 +1,12 @@
 # HyperEVM Network Configuration
 network:
-  # Option 1: Public HyperEVM endpoints 
-  # rpc_url: "https://api.hyperliquid.xyz/evm"
-  # ws_url: "wss://api.hyperliquid.xyz/ws"
+  # Option 1: Official HyperLiquid public RPC
+  rpc_url: "https://rpc.hyperliquid.xyz/evm"
+  ws_url: "wss://rpc.hyperliquid.xyz/evm"
   
   # Option 2: Your QuickNode URLs (Premium)
-  rpc_url: "https://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/evm"
-  ws_url: "wss://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/evm"
+  # rpc_url: "https://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/evm"
+  # ws_url: "wss://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/"
   
   chain_id: 998  # HyperEVM mainnet
   private_key: ""  # Leave empty - use environment variable for security
@@ -15,6 +15,41 @@ network:
   mempool_mode: "auto"  # auto (try websocket, fallback to polling), websocket, polling
   polling_interval_ms: 300  # Polling interval when using HTTP polling mode
   websocket_timeout_secs: 3  # Timeout for WebSocket subscription attempt
+
+# HyperLiquid Native WebSocket API Configuration
+# This provides real-time trade data from HyperLiquid's native exchange
+hyperliquid:
+  # Enable/disable HyperLiquid WebSocket integration
+  enabled: false  # DISABLED - Only monitoring EVM mempool
+  
+  # WebSocket endpoint for HyperLiquid's native API
+  ws_url: "wss://api.hyperliquid.xyz/ws"
+  
+  # Trading pairs to monitor (coin symbols)
+  # These are the native HyperLiquid trading pairs, not EVM tokens
+  trading_pairs:
+    - "BTC"
+    - "ETH"
+    - "SOL"
+    - "ARB"
+  
+  # Subscribe to order book updates (optional, provides L2 order book data)
+  # Set to true for more comprehensive market data, false for trades only
+  subscribe_orderbook: false
+  
+  # Reconnection settings for handling connection failures
+  reconnect_min_backoff_secs: 1    # Minimum wait time between reconnection attempts
+  reconnect_max_backoff_secs: 60   # Maximum wait time (exponential backoff caps here)
+  max_consecutive_failures: 10     # Enter degraded state after this many failures
+  
+  # Token mapping: Maps HyperLiquid coin symbols to EVM token addresses
+  # This enables cross-exchange arbitrage between HyperLiquid and EVM DEXes
+  # Format: COIN_SYMBOL: "0x..." (EVM token address)
+  token_mapping:
+    BTC: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"  # WBTC on Ethereum
+    ETH: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"  # WETH on Ethereum
+    SOL: "0x5288738df1aB05A68337cB9dD7a607285Ac3Cf90"  # SOL (example address)
+    ARB: "0x912CE59144191C1204E64559FE8253a0e49E6548"  # ARB token
 
 # Bot Configuration
 bot:

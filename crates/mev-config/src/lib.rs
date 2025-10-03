@@ -9,6 +9,19 @@ pub struct Config {
     pub bot: BotConfig,
     pub performance: Option<PerformanceConfig>,
     pub monitoring: MonitoringConfig,
+    pub hyperliquid: Option<HyperLiquidConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperLiquidConfig {
+    pub enabled: bool,
+    pub ws_url: String,
+    pub trading_pairs: Vec<String>,
+    pub subscribe_orderbook: bool,
+    pub reconnect_min_backoff_secs: u64,
+    pub reconnect_max_backoff_secs: u64,
+    pub max_consecutive_failures: u32,
+    pub token_mapping: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +152,7 @@ impl Config {
                     .unwrap_or(9090),
                 log_level: std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string()),
             },
+            hyperliquid: None,
         };
 
         Ok(config)

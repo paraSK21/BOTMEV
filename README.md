@@ -11,6 +11,7 @@ A high-performance, production-ready MEV (Maximal Extractable Value) bot designe
 - **Ultra-Low Latency**: ≤20ms median detection latency, ≤25ms decision loop
 - **High Throughput**: ≥200 simulations/second with concurrent processing
 - **Real-Time Mempool Monitoring**: WebSocket-based transaction ingestion with backpressure handling
+- **HyperLiquid Native Integration**: Real-time trade data from HyperLiquid's native WebSocket API for cross-exchange arbitrage
 - **Advanced Strategy System**: Pluggable strategies for backrun, sandwich, and custom MEV opportunities
 - **Fork Simulation**: Accurate profit estimation using eth_call with state overrides
 - **Production Monitoring**: Comprehensive Prometheus metrics and Grafana dashboards
@@ -107,6 +108,7 @@ The MEV bot follows a modular, high-performance architecture:
 
 - **`mev-core`**: Core types, simulation engine, and bundle management
 - **`mev-mempool`**: WebSocket client, transaction parsing, and filtering
+- **`mev-hyperliquid`**: HyperLiquid native WebSocket integration for real-time trade data
 - **`mev-strategies`**: Strategy implementations and evaluation engine
 - **`mev-config`**: Configuration management and validation
 - **`mev-bot`**: Main binary and orchestration logic
@@ -219,6 +221,81 @@ export MEV_BOT_CHAIN_ID="998"
 export RUST_LOG="info"
 ```
 
+### HyperLiquid Integration
+
+The bot supports real-time trade monitoring from HyperLiquid's native exchange via WebSocket API:
+
+```yaml
+# HyperLiquid Native WebSocket API Configuration
+hyperliquid:
+  # Enable/disable HyperLiquid WebSocket integration
+  enabled: true
+  
+  # WebSocket endpoint for HyperLiquid's native API
+  ws_url: "wss://api.hyperliquid.xyz/ws"
+  
+  # Trading pairs to monitor (coin symbols)
+  trading_pairs:
+    - "BTC"
+    - "ETH"
+    - "SOL"
+    - "ARB"
+  
+  # Subscribe to order book updates (optional)
+  subscribe_orderbook: false
+  
+  # Reconnection settings
+  reconnect_min_backoff_secs: 1
+  reconnect_max_backoff_secs: 60
+  max_consecutive_failures: 10
+  
+  # Token mapping for cross-exchange arbitrage
+  # Maps HyperLiquid coin symbols to EVM token addresses
+  token_mapping:
+    BTC: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"  # WBTC
+    ETH: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"  # WETH
+    SOL: "0x5288738df1aB05A68337cB9dD7a607285Ac3Cf90"  # SOL
+    ARB: "0x912CE59144191C1204E64559FE8253a0e49E6548"  # ARB
+```
+
+**Key Features:**
+- Real-time trade data streaming from HyperLiquid's native exchange
+- Automatic reconnection with exponential backoff
+- Subscription management with retry logic
+- Order book monitoring (optional)
+- Cross-exchange arbitrage via token mapping
+- Comprehensive metrics and monitoring
+
+**Metrics:**
+- `hyperliquid_ws_connected`: Connection status (0/1)
+- `hyperliquid_trades_received_total`: Total trades received
+- `hyperliquid_message_processing_duration_seconds`: Processing latency
+- `hyperliquid_active_subscriptions`: Number of active subscriptions
+- `hyperliquid_reconnection_attempts_total`: Reconnection attempts
+- `hyperliquid_degraded_state`: Degraded state indicator (0/1)
+
+**Troubleshooting:**
+
+*Connection Issues:*
+```bash
+# Test WebSocket connectivity
+wscat -c wss://api.hyperliquid.xyz/ws
+
+# Check subscription status
+curl http://localhost:9090/metrics | grep hyperliquid_active_subscriptions
+```
+
+*No Trades Received:*
+- Verify trading pairs are valid HyperLiquid symbols
+- Check if `enabled: true` in configuration
+- Review logs for subscription errors: `docker logs mev-bot | grep hyperliquid`
+
+*Degraded State:*
+- Check network connectivity
+- Verify HyperLiquid API is operational
+- Review reconnection metrics: `hyperliquid_reconnection_attempts_total`
+- Service will automatically recover when connection is restored
+
 ### Advanced Configuration
 
 See [docs/configuration.md](docs/configuration.md) for detailed configuration options.
@@ -295,11 +372,25 @@ See [.github/workflows/](/.github/workflows/) for pipeline configuration.
 
 Key metrics exposed on `:9090/metrics`:
 
+**Core Metrics:**
 - `mev_bot_mempool_transactions_total`: Total transactions processed
 - `mev_bot_detection_latency_seconds`: Strategy detection latency
 - `mev_bot_simulation_latency_seconds`: Bundle simulation latency
 - `mev_bot_bundle_success_total`: Successful bundle submissions
 - `mev_bot_profit_eth_total`: Total profit in ETH
+
+**HyperLiquid Metrics:**
+- `hyperliquid_ws_connected`: WebSocket connection status (0/1)
+- `hyperliquid_trades_received_total`: Total trades received by coin and side
+- `hyperliquid_message_processing_duration_seconds`: Message processing latency histogram
+- `hyperliquid_active_subscriptions`: Number of active trading pair subscriptions
+- `hyperliquid_reconnection_attempts_total`: Total reconnection attempts by reason
+- `hyperliquid_degraded_state`: Degraded state indicator (0/1)
+- `hyperliquid_connection_errors_total`: Connection errors by type
+- `hyperliquid_subscription_errors_total`: Subscription errors by coin and type
+- `hyperliquid_parse_errors_total`: Message parsing errors by coin
+- `hyperliquid_adaptation_errors_total`: Trade adaptation errors by coin and reason
+- `hyperliquid_network_errors_total`: Network errors by type
 
 ### Grafana Dashboards
 

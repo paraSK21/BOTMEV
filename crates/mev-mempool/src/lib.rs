@@ -73,6 +73,23 @@ impl MempoolService {
         })
     }
 
+    pub fn new_with_metrics(endpoint: String, rpc_url: String, metrics: Arc<PrometheusMetrics>) -> Result<Self> {
+        let latency_histogram = Arc::new(LatencyHistogram::new(1000)); // Keep last 1000 samples
+        
+        Ok(Self {
+            endpoint,
+            rpc_url,
+            mode: MempoolMode::Auto,
+            polling_interval_ms: 300,
+            websocket_timeout_secs: 3,
+            parser: Arc::new(TransactionParser::new()),
+            ring_buffer: Arc::new(TransactionRingBuffer::new(10000)), // 10k transaction buffer
+            metrics,
+            latency_histogram,
+            seen_txs: Arc::new(Mutex::new(HashSet::new())),
+        })
+    }
+
     pub fn with_mode(mut self, mode: MempoolMode) -> Self {
         self.mode = mode;
         self
@@ -194,10 +211,18 @@ impl MempoolService {
             .await
             .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
 
-        let response_json: serde_json::Value = response
-            .json()
+        // Get response text first for better error handling
+        let response_text = response
+            .text()
             .await
-            .map_err(|e| anyhow!("Failed to parse response: {}", e))?;
+            .map_err(|e| anyhow!("Failed to read response body: {}", e))?;
+
+        if response_text.is_empty() {
+            return Err(anyhow!("Empty response from RPC endpoint - the endpoint may not support eth_getBlockByNumber with 'pending' parameter"));
+        }
+
+        let response_json: serde_json::Value = serde_json::from_str(&response_text)
+            .map_err(|e| anyhow!("Failed to parse response: {}. Response body: {}", e, response_text))?;
 
         if let Some(error) = response_json.get("error") {
             return Err(anyhow!("RPC error: {}", error));
@@ -207,10 +232,19 @@ impl MempoolService {
             .get("result")
             .ok_or_else(|| anyhow!("No result in response"))?;
 
+        // Debug: log what we're getting
+        if block.is_null() {
+            return Err(anyhow!("Pending block is null - the endpoint may not support pending transactions"));
+        }
+
         let transactions = block
             .get("transactions")
             .and_then(|t| t.as_array())
-            .ok_or_else(|| anyhow!("No transactions array in block"))?;
+            .ok_or_else(|| {
+                // Log the actual block structure for debugging
+                anyhow!("No transactions array in block. Block structure: {}", 
+                    serde_json::to_string_pretty(block).unwrap_or_else(|_| "Unable to serialize".to_string()))
+            })?;
 
         let mut new_tx_count = 0;
         let mut seen_txs = self.seen_txs.lock().await;

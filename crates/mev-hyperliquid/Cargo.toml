@@ -1,0 +1,18 @@
+[package]
+name = "mev-hyperliquid"
+version = "0.1.0"
+edition = "2021"
+description = "MEV Bot - HyperLiquid WebSocket integration"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+tracing = { workspace = true }
+ethers = { workspace = true }
+chrono = { workspace = true }
+prometheus = { workspace = true }
