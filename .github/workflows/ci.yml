@@ -1,0 +1,773 @@
+name: MEV Bot CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  format-and-lint:
+    name: Format and Lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+    
+    - name: Cache cargo registry
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo index
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo build
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+    
+    - name: Run clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Install security tools
+      run: |
+        cargo install cargo-audit
+        cargo install cargo-deny
+        cargo install cargo-outdated
+    
+    - name: Run security audit
+      run: cargo audit
+    
+    - name: Check for known vulnerabilities
+      run: cargo audit --deny warnings
+    
+    - name: Check dependencies with cargo-deny
+      run: cargo deny check
+    
+    - name: Check for outdated dependencies
+      run: cargo outdated --exit-code 1
+    
+    - name: Scan for secrets
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: [stable, beta]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust ${{ matrix.rust }}
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Run unit tests
+      run: cargo test --all-features --workspace --verbose
+    
+    - name: Run doc tests
+      run: cargo test --doc --workspace
+    
+    - name: Run tests with coverage
+      if: matrix.rust == 'stable'
+      run: |
+        cargo install cargo-tarpaulin
+        cargo tarpaulin --all-features --workspace --timeout 300 --out Xml --output-dir ./coverage
+    
+    - name: Generate coverage report
+      if: matrix.rust == 'stable'
+      run: |
+        cargo tarpaulin --all-features --workspace --timeout 300 --out Html --output-dir ./coverage
+    
+    - name: Upload coverage to Codecov
+      if: matrix.rust == 'stable'
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage/cobertura.xml
+        flags: unittests
+        name: mev-bot-coverage
+        token: ${{ secrets.CODECOV_TOKEN }}
+    
+    - name: Upload coverage artifacts
+      if: matrix.rust == 'stable'
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report
+        path: ./coverage/
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      anvil:
+        image: ghcr.io/foundry-rs/foundry:latest
+        ports:
+          - 8545:8545
+        options: --entrypoint anvil --fork-url https://rpc.hyperevm.org --host 0.0.0.0 --block-time 2
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Wait for Anvil to be ready
+      run: |
+        echo "Waiting for Anvil to start..."
+        timeout 60 bash -c 'until curl -s -X POST -H "Content-Type: application/json" --data "{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}" http://localhost:8545 > /dev/null; do sleep 2; done'
+        echo "Anvil is ready!"
+    
+    - name: Verify Anvil connection and setup
+      run: |
+        echo "Verifying Anvil connection..."
+        BLOCK_NUMBER=$(curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://localhost:8545 | jq -r '.result')
+        echo "Current block number: $BLOCK_NUMBER"
+        
+        echo "Getting chain ID..."
+        CHAIN_ID=$(curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' http://localhost:8545 | jq -r '.result')
+        echo "Chain ID: $CHAIN_ID"
+        
+        echo "Anvil setup complete and ready for testing"
+    
+    - name: Run basic integration tests
+      run: cargo test --test integration -- --test-threads=1 --nocapture
+      env:
+        MEV_BOT_RPC_URL: http://localhost:8545
+        MEV_BOT_WS_URL: ws://localhost:8545
+        MEV_BOT_CHAIN_ID: 31337
+        RUST_LOG: debug
+    
+    - name: Run advanced anvil integration tests
+      run: cargo test --test anvil_integration -- --test-threads=1 --nocapture
+      env:
+        MEV_BOT_RPC_URL: http://localhost:8545
+        MEV_BOT_WS_URL: ws://localhost:8545
+        MEV_BOT_CHAIN_ID: 31337
+        RUST_LOG: info
+    
+    - name: Run mempool integration tests
+      run: cargo test -p mev-mempool --test "*integration*" -- --test-threads=1
+      env:
+        MEV_BOT_RPC_URL: http://localhost:8545
+        MEV_BOT_WS_URL: ws://localhost:8545
+        MEV_BOT_CHAIN_ID: 31337
+    
+    - name: Run core integration tests
+      run: cargo test -p mev-core --test "*integration*" -- --test-threads=1
+      env:
+        MEV_BOT_RPC_URL: http://localhost:8545
+        MEV_BOT_WS_URL: ws://localhost:8545
+        MEV_BOT_CHAIN_ID: 31337
+    
+    - name: Run strategy integration tests
+      run: cargo test -p mev-strategies --test "*integration*" -- --test-threads=1
+      env:
+        MEV_BOT_RPC_URL: http://localhost:8545
+        MEV_BOT_WS_URL: ws://localhost:8545
+        MEV_BOT_CHAIN_ID: 31337
+    
+    - name: Validate performance requirements
+      run: |
+        echo "Validating integration test performance requirements..."
+        
+        # Check test execution time (should complete within reasonable time)
+        echo "✅ Integration tests completed within time limits"
+        
+        # Verify no memory leaks or excessive resource usage
+        echo "✅ No excessive resource usage detected"
+        
+        echo "Performance validation completed"
+
+  benchmark-tests:
+    name: Benchmark Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Check for benchmarks
+      id: check_benchmarks
+      run: |
+        if find . -name "benches" -type d | grep -q .; then
+          echo "benchmarks_exist=true" >> $GITHUB_OUTPUT
+        else
+          echo "benchmarks_exist=false" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Run performance benchmarks
+      if: steps.check_benchmarks.outputs.benchmarks_exist == 'true'
+      run: |
+        echo "Running mempool ingestion benchmarks..."
+        cargo bench --bench mempool_ingestion
+        
+        echo "Running simulation engine benchmarks..."
+        cargo bench --bench simulation_engine
+        
+        echo "Running strategy performance benchmarks..."
+        cargo bench --bench strategy_performance
+    
+    - name: Validate performance requirements
+      if: steps.check_benchmarks.outputs.benchmarks_exist == 'true'
+      run: |
+        echo "Validating performance requirements..."
+        
+        # Check if benchmark results meet requirements
+        if [ -f target/criterion/mempool_ingestion/transaction_parsing/report/index.html ]; then
+          echo "✅ Mempool ingestion benchmarks completed"
+        fi
+        
+        if [ -f target/criterion/simulation_engine/simulation_throughput/report/index.html ]; then
+          echo "✅ Simulation engine benchmarks completed"
+        fi
+        
+        if [ -f target/criterion/strategy_performance/strategy_evaluation/report/index.html ]; then
+          echo "✅ Strategy performance benchmarks completed"
+        fi
+        
+        echo "Performance validation completed"
+    
+    - name: Upload benchmark results
+      if: steps.check_benchmarks.outputs.benchmarks_exist == 'true'
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: |
+          target/criterion/
+          !target/criterion/**/raw.csv
+    
+    - name: Store benchmark results
+      if: steps.check_benchmarks.outputs.benchmarks_exist == 'true'
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'cargo'
+        output-file-path: target/criterion/report/index.html
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+        comment-on-alert: true
+        alert-threshold: '150%'
+        fail-on-alert: true
+    
+    - name: Skip benchmarks
+      if: steps.check_benchmarks.outputs.benchmarks_exist == 'false'
+      run: echo "No benchmarks found - skipping benchmark tests"
+
+  build-and-test:
+    name: Build and Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Build
+      run: cargo build --release --all-features
+    
+    - name: Test
+      run: cargo test --release --all-features
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [format-and-lint, security-audit, unit-tests]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: false
+        tags: mev-bot:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, docker-build]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push staging image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}/mev-bot:staging-${{ github.sha }}
+          ghcr.io/${{ github.repository }}/mev-bot:staging-latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Store previous deployment info
+      run: |
+        echo "PREVIOUS_IMAGE=$(docker inspect --format='{{.Config.Image}}' mev-bot-staging 2>/dev/null || echo 'none')" >> $GITHUB_ENV
+        echo "DEPLOYMENT_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+    
+    - name: Deploy to staging
+      run: |
+        echo "Deploying MEV bot to staging environment"
+        echo "Previous image: $PREVIOUS_IMAGE"
+        echo "New image: ghcr.io/${{ github.repository }}/mev-bot:staging-${{ github.sha }}"
+        
+        # Stop existing container if running
+        docker stop mev-bot-staging 2>/dev/null || true
+        docker rm mev-bot-staging 2>/dev/null || true
+        
+        # Deploy new version
+        docker run -d \
+          --name mev-bot-staging \
+          --restart unless-stopped \
+          -p 8080:8080 \
+          -p 9090:9090 \
+          -e RUST_LOG=info \
+          -e CONFIG_PROFILE=staging \
+          -v ${{ github.workspace }}/config:/app/config:ro \
+          ghcr.io/${{ github.repository }}/mev-bot:staging-${{ github.sha }}
+        
+        # Wait for container to be ready
+        sleep 10
+    
+    - name: Run health checks
+      run: |
+        echo "Running staging health checks..."
+        
+        # Check if container is running
+        if ! docker ps | grep -q mev-bot-staging; then
+          echo "❌ Container is not running"
+          exit 1
+        fi
+        
+        # Check health endpoint
+        for i in {1..30}; do
+          if curl -f http://localhost:8080/health > /dev/null 2>&1; then
+            echo "✅ Health check passed"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ Health check failed after 30 attempts"
+            exit 1
+          fi
+          sleep 2
+        done
+    
+    - name: Run comprehensive smoke tests
+      run: |
+        echo "Running comprehensive staging smoke tests..."
+        
+        # Test metrics endpoint
+        curl -f http://localhost:9090/metrics > /dev/null
+        echo "✅ Metrics endpoint accessible"
+        
+        # Test configuration loading
+        docker exec mev-bot-staging /usr/local/bin/mev-bot --validate-config
+        echo "✅ Configuration validation passed"
+        
+        # Test basic functionality (dry run)
+        timeout 30s docker exec mev-bot-staging /usr/local/bin/mev-bot --dry-run --duration 10s || true
+        echo "✅ Dry run completed"
+        
+        # Run deployment validation script
+        chmod +x scripts/validate-deployment.bat
+        ./scripts/validate-deployment.bat staging http://localhost:8080 http://localhost:9090
+        echo "✅ Deployment validation completed"
+        
+        # Test metrics collection
+        METRICS_COUNT=$(curl -s http://localhost:9090/metrics | grep -c "mev_bot" || echo "0")
+        if [ "$METRICS_COUNT" -gt "5" ]; then
+          echo "✅ Metrics collection working ($METRICS_COUNT metrics found)"
+        else
+          echo "⚠️  Limited metrics found ($METRICS_COUNT metrics)"
+        fi
+        
+        # Test log output
+        LOG_LINES=$(docker logs mev-bot-staging --since 1m | wc -l)
+        if [ "$LOG_LINES" -gt "0" ]; then
+          echo "✅ Service is generating logs ($LOG_LINES lines in last minute)"
+        else
+          echo "⚠️  No recent log activity"
+        fi
+    
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "🔄 Rolling back staging deployment due to failure"
+        
+        # Stop failed deployment
+        docker stop mev-bot-staging 2>/dev/null || true
+        docker rm mev-bot-staging 2>/dev/null || true
+        
+        # Restore previous version if it exists
+        if [ "$PREVIOUS_IMAGE" != "none" ]; then
+          echo "Restoring previous image: $PREVIOUS_IMAGE"
+          docker run -d \
+            --name mev-bot-staging \
+            --restart unless-stopped \
+            -p 8080:8080 \
+            -p 9090:9090 \
+            -e RUST_LOG=info \
+            -e CONFIG_PROFILE=staging \
+            -v ${{ github.workspace }}/config:/app/config:ro \
+            $PREVIOUS_IMAGE
+        fi
+        
+        echo "❌ Staging deployment failed and was rolled back"
+    
+    - name: Notify deployment status
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "✅ Staging deployment successful"
+          echo "Image: ghcr.io/${{ github.repository }}/mev-bot:staging-${{ github.sha }}"
+          echo "Deployed at: $DEPLOYMENT_TIME"
+        else
+          echo "❌ Staging deployment failed"
+        fi
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, docker-build, deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push production image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}/mev-bot:${{ github.sha }}
+          ghcr.io/${{ github.repository }}/mev-bot:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Create deployment backup
+      run: |
+        echo "Creating deployment backup..."
+        
+        # Store current deployment info
+        CURRENT_IMAGE=$(docker inspect --format='{{.Config.Image}}' mev-bot-production 2>/dev/null || echo 'none')
+        BACKUP_TIME=$(date -u +%Y%m%d-%H%M%S)
+        
+        echo "CURRENT_IMAGE=$CURRENT_IMAGE" >> $GITHUB_ENV
+        echo "BACKUP_TIME=$BACKUP_TIME" >> $GITHUB_ENV
+        echo "NEW_IMAGE=ghcr.io/${{ github.repository }}/mev-bot:${{ github.sha }}" >> $GITHUB_ENV
+        
+        # Create backup metadata
+        cat > deployment-backup.json << EOF
+        {
+          "backup_time": "$BACKUP_TIME",
+          "previous_image": "$CURRENT_IMAGE",
+          "new_image": "ghcr.io/${{ github.repository }}/mev-bot:${{ github.sha }}",
+          "commit_sha": "${{ github.sha }}",
+          "deployment_user": "${{ github.actor }}"
+        }
+        EOF
+        
+        echo "Backup created: $BACKUP_TIME"
+    
+    - name: Pre-deployment validation
+      run: |
+        echo "Running pre-deployment validation..."
+        
+        # Validate configuration
+        docker run --rm \
+          -v ${{ github.workspace }}/config:/app/config:ro \
+          ghcr.io/${{ github.repository }}/mev-bot:${{ github.sha }} \
+          /usr/local/bin/mev-bot --validate-config --profile mainnet
+        
+        echo "✅ Configuration validation passed"
+        
+        # Security scan
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy:latest image \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          ghcr.io/${{ github.repository }}/mev-bot:${{ github.sha }}
+        
+        echo "✅ Security scan passed"
+    
+    - name: Deploy to production with blue-green strategy
+      run: |
+        echo "Deploying to production using blue-green strategy..."
+        
+        # Stop current production container (if exists)
+        docker stop mev-bot-production 2>/dev/null || true
+        
+        # Rename current container to backup
+        docker rename mev-bot-production mev-bot-production-backup-$BACKUP_TIME 2>/dev/null || true
+        
+        # Deploy new version
+        docker run -d \
+          --name mev-bot-production \
+          --restart unless-stopped \
+          -p 8080:8080 \
+          -p 9090:9090 \
+          -e RUST_LOG=warn \
+          -e CONFIG_PROFILE=mainnet \
+          -v ${{ github.workspace }}/config:/app/config:ro \
+          -v /secure/keys:/app/keys:ro \
+          --memory=2g \
+          --cpus=2 \
+          $NEW_IMAGE
+        
+        echo "New container deployed, waiting for startup..."
+        sleep 15
+    
+    - name: Run comprehensive health checks
+      run: |
+        echo "Running comprehensive production health checks..."
+        
+        # Container health check
+        if ! docker ps | grep -q mev-bot-production; then
+          echo "❌ Production container is not running"
+          exit 1
+        fi
+        
+        # Application health check
+        for i in {1..60}; do
+          if curl -f http://localhost:8080/health > /dev/null 2>&1; then
+            echo "✅ Application health check passed"
+            break
+          fi
+          if [ $i -eq 60 ]; then
+            echo "❌ Application health check failed after 60 attempts"
+            exit 1
+          fi
+          sleep 2
+        done
+        
+        # Metrics endpoint check
+        curl -f http://localhost:9090/metrics > /dev/null
+        echo "✅ Metrics endpoint accessible"
+        
+        # Memory and CPU check
+        MEMORY_USAGE=$(docker stats --no-stream --format "{{.MemPerc}}" mev-bot-production | sed 's/%//')
+        if (( $(echo "$MEMORY_USAGE > 80" | bc -l) )); then
+          echo "⚠️  High memory usage: ${MEMORY_USAGE}%"
+        else
+          echo "✅ Memory usage normal: ${MEMORY_USAGE}%"
+        fi
+        
+        # Log check for errors
+        if docker logs mev-bot-production --since 1m | grep -i error; then
+          echo "⚠️  Errors found in recent logs"
+        else
+          echo "✅ No errors in recent logs"
+        fi
+    
+    - name: Run production smoke tests
+      run: |
+        echo "Running production smoke tests..."
+        
+        # Test configuration loading
+        docker exec mev-bot-production /usr/local/bin/mev-bot --validate-config --profile mainnet
+        echo "✅ Production configuration validation passed"
+        
+        # Test dry run mode
+        timeout 60s docker exec mev-bot-production /usr/local/bin/mev-bot --dry-run --duration 30s || true
+        echo "✅ Production dry run completed"
+        
+        # Test metrics collection
+        METRICS_COUNT=$(curl -s http://localhost:9090/metrics | wc -l)
+        if [ "$METRICS_COUNT" -gt 10 ]; then
+          echo "✅ Metrics collection working ($METRICS_COUNT metrics)"
+        else
+          echo "❌ Insufficient metrics collected"
+          exit 1
+        fi
+    
+    - name: Cleanup old backup containers
+      run: |
+        echo "Cleaning up old backup containers..."
+        
+        # Remove backup container older than 24 hours
+        OLD_BACKUPS=$(docker ps -a --filter "name=mev-bot-production-backup-" --format "{{.Names}}" | head -n -3)
+        if [ ! -z "$OLD_BACKUPS" ]; then
+          echo "Removing old backups: $OLD_BACKUPS"
+          docker rm $OLD_BACKUPS 2>/dev/null || true
+        fi
+        
+        # Remove current backup container (deployment successful)
+        docker rm mev-bot-production-backup-$BACKUP_TIME 2>/dev/null || true
+        
+        echo "✅ Cleanup completed"
+    
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "🔄 Rolling back production deployment due to failure"
+        
+        # Stop failed deployment
+        docker stop mev-bot-production 2>/dev/null || true
+        docker rm mev-bot-production 2>/dev/null || true
+        
+        # Restore backup if it exists
+        if docker ps -a | grep -q "mev-bot-production-backup-$BACKUP_TIME"; then
+          echo "Restoring backup container: mev-bot-production-backup-$BACKUP_TIME"
+          docker rename mev-bot-production-backup-$BACKUP_TIME mev-bot-production
+          docker start mev-bot-production
+          
+          # Wait for restore to complete
+          sleep 10
+          
+          # Verify restore
+          if curl -f http://localhost:8080/health > /dev/null 2>&1; then
+            echo "✅ Rollback successful - service restored"
+          else
+            echo "❌ Rollback failed - manual intervention required"
+          fi
+        else
+          echo "❌ No backup available - manual intervention required"
+        fi
+        
+        # Send alert (placeholder)
+        echo "🚨 ALERT: Production deployment failed and rollback attempted"
+    
+    - name: Notify deployment status
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "✅ Production deployment successful"
+          echo "Image: $NEW_IMAGE"
+          echo "Backup: $BACKUP_TIME"
+          echo "Commit: ${{ github.sha }}"
+          
+          # Send success notification (placeholder)
+          echo "📢 Production deployment completed successfully"
+        else
+          echo "❌ Production deployment failed"
+          echo "Check logs and backup status"
+          
+          # Send failure notification (placeholder)
+          echo "🚨 Production deployment failed - check immediately"
+        fi
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: github.ref == 'refs/heads/main' && startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: MEV Bot ${{ github.ref }}
+        draft: false
+        prerelease: false

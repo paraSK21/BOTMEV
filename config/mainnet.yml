@@ -1,0 +1,29 @@
+network:
+  rpc_url: "https://mainnet.infura.io/v3/YOUR_INFURA_KEY"
+  ws_url: "wss://mainnet.infura.io/ws/v3/YOUR_INFURA_KEY"
+  chain_id: 1  # Ethereum mainnet
+  private_key: ""  # Set in environment variables - NEVER commit real keys
+
+bot:
+  max_gas_price: 100000000000  # 100 gwei
+  min_profit_threshold: 0.01  # 1% minimum profit for mainnet
+  strategies:
+    - "arbitrage"
+    - "liquidation"
+
+performance:
+  worker_threads: 16
+  ring_buffer_size: 50000
+  simulation_timeout_ms: 25
+  max_concurrent_simulations: 200
+  cpu_core_pinning: true
+  core_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  backpressure:
+    enabled: true
+    drop_policy: "oldest"
+    high_watermark: 0.9
+    low_watermark: 0.7
+
+monitoring:
+  prometheus_port: 9090
+  log_level: "warn"

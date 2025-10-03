@@ -1,0 +1,44 @@
+# HyperEVM Network Configuration
+network:
+  # Option 1: Public HyperEVM endpoints 
+  # rpc_url: "https://api.hyperliquid.xyz/evm"
+  # ws_url: "wss://api.hyperliquid.xyz/ws"
+  
+  # Option 2: Your QuickNode URLs (Premium)
+  rpc_url: "https://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/evm"
+  ws_url: "wss://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/evm"
+  
+  chain_id: 998  # HyperEVM mainnet
+  private_key: ""  # Leave empty - use environment variable for security
+  
+  # Mempool monitoring configuration
+  mempool_mode: "auto"  # auto (try websocket, fallback to polling), websocket, polling
+  polling_interval_ms: 300  # Polling interval when using HTTP polling mode
+  websocket_timeout_secs: 3  # Timeout for WebSocket subscription attempt
+
+# Bot Configuration
+bot:
+  max_gas_price: 50000000000   # 50 gwei (adjust based on network conditions)
+  min_profit_threshold: 0.01   # 1% minimum profit (adjust for your risk tolerance)
+  strategies:
+    - "arbitrage"
+    - "backrun"
+
+# Performance Settings
+performance:
+  worker_threads: 4
+  ring_buffer_size: 10000
+  simulation_timeout_ms: 100
+  max_concurrent_simulations: 50
+  cpu_core_pinning: false
+  core_ids: [0, 1, 2, 3]
+  backpressure:
+    enabled: true
+    drop_policy: "oldest"
+    high_watermark: 0.8
+    low_watermark: 0.6
+
+# Monitoring
+monitoring:
+  prometheus_port: 9090
+  log_level: "info"  # Use "debug" for more detailed logs

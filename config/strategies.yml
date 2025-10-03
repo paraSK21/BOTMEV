@@ -1,0 +1,85 @@
+# MEV Bot Strategy Configuration
+
+strategies:
+  arbitrage:
+    enabled: true
+    priority: 200
+    min_profit_wei: "10000000000000000"  # 0.01 ETH
+    max_gas_price_gwei: 200
+    risk_tolerance: 0.8
+    parameters:
+      min_price_difference_percent: 0.5
+      max_trade_size_eth: 10.0
+      supported_tokens: ["WETH", "USDC", "USDT", "DAI", "WBTC"]
+      supported_dexs: ["UniswapV2", "UniswapV3", "SushiSwap", "Curve"]
+      max_hops: 3
+      slippage_tolerance: 0.02  # 2%
+
+  backrun:
+    enabled: true
+    priority: 150
+    min_profit_wei: "5000000000000000"   # 0.005 ETH
+    max_gas_price_gwei: 150
+    risk_tolerance: 0.7
+    parameters:
+      min_target_value_eth: 0.5
+      max_slippage_percent: 2.0
+      target_protocols: ["UniswapV2", "UniswapV3", "SushiSwap"]
+      follow_distance_blocks: 1
+      max_follow_attempts: 3
+
+  sandwich:
+    enabled: false  # Disabled by default due to ethical concerns
+    priority: 180
+    min_profit_wei: "20000000000000000"  # 0.02 ETH
+    max_gas_price_gwei: 300
+    risk_tolerance: 0.6
+    parameters:
+      min_victim_value_eth: 1.0
+      max_front_run_eth: 5.0
+      slippage_buffer_percent: 1.0
+      target_protocols: ["UniswapV2", "UniswapV3"]
+      ethical_mode: true  # Only sandwich MEV bots, not regular users
+
+  liquidation:
+    enabled: true
+    priority: 120
+    min_profit_wei: "15000000000000000"  # 0.015 ETH
+    max_gas_price_gwei: 250
+    risk_tolerance: 0.9
+    parameters:
+      supported_protocols: ["Aave", "Compound", "MakerDAO"]
+      min_health_factor: 1.05
+      liquidation_bonus_threshold: 0.05  # 5%
+      max_liquidation_amount_eth: 50.0
+
+# Global strategy settings
+settings:
+  # Maximum number of strategies to evaluate per transaction
+  max_strategies_per_transaction: 10
+  
+  # Enable parallel strategy evaluation
+  parallel_evaluation: true
+  
+  # Maximum concurrent strategy evaluations
+  max_concurrent_evaluations: 5
+  
+  # Strategy evaluation timeout (ms)
+  evaluation_timeout_ms: 50
+  
+  # Opportunity cache settings
+  opportunity_cache_size: 1000
+  opportunity_ttl_seconds: 30
+  
+  # Bundle plan cache settings
+  bundle_cache_size: 500
+  bundle_ttl_seconds: 60
+  
+  # Risk management
+  max_total_exposure_eth: 100.0
+  max_gas_price_multiplier: 2.0
+  
+  # Performance monitoring
+  enable_strategy_metrics: true
+  log_all_evaluations: false
+  log_opportunities_only: true

@@ -1,0 +1,32 @@
+[package]
+name = "mev-strategies"
+version = "0.1.0"
+edition = "2021"
+description = "MEV Bot - Trading strategies implementation"
+
+[[bin]]
+name = "strategy-test"
+path = "src/bin/strategy-test.rs"
+
+[[bin]]
+name = "strategy-integration-demo"
+path = "src/bin/strategy-integration-demo.rs"
+
+[dependencies]
+mev-core = { path = "../mev-core" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+ethers = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+async-trait = "0.1"
+rand = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures = "0.3"
+
+[dev-dependencies]
+tempfile = "3.8"

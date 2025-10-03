@@ -1,0 +1,209 @@
+name: Emergency Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to rollback'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      backup_id:
+        description: 'Backup ID to rollback to (optional - uses latest if not specified)'
+        required: false
+        type: string
+      reason:
+        description: 'Reason for rollback'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rollback:
+    name: Emergency Rollback
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Validate rollback request
+      run: |
+        echo "🔄 Emergency rollback requested"
+        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "Backup ID: ${{ github.event.inputs.backup_id || 'latest' }}"
+        echo "Reason: ${{ github.event.inputs.reason }}"
+        echo "Requested by: ${{ github.actor }}"
+        echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    
+    - name: Find backup to restore
+      run: |
+        echo "Finding backup to restore..."
+        
+        if [ -n "${{ github.event.inputs.backup_id }}" ]; then
+          BACKUP_CONTAINER="mev-bot-${{ github.event.inputs.environment }}-backup-${{ github.event.inputs.backup_id }}"
+        else
+          # Find latest backup
+          BACKUP_CONTAINER=$(docker ps -a --filter "name=mev-bot-${{ github.event.inputs.environment }}-backup-" --format "{{.Names}}" | head -n 1)
+        fi
+        
+        if [ -z "$BACKUP_CONTAINER" ]; then
+          echo "❌ No backup container found"
+          exit 1
+        fi
+        
+        echo "BACKUP_CONTAINER=$BACKUP_CONTAINER" >> $GITHUB_ENV
+        echo "Found backup container: $BACKUP_CONTAINER"
+    
+    - name: Stop current deployment
+      run: |
+        echo "Stopping current deployment..."
+        
+        CURRENT_CONTAINER="mev-bot-${{ github.event.inputs.environment }}"
+        
+        if docker ps | grep -q "$CURRENT_CONTAINER"; then
+          echo "Stopping container: $CURRENT_CONTAINER"
+          docker stop "$CURRENT_CONTAINER"
+          
+          # Create emergency backup of current state
+          EMERGENCY_BACKUP="mev-bot-${{ github.event.inputs.environment }}-emergency-$(date +%Y%m%d-%H%M%S)"
+          docker rename "$CURRENT_CONTAINER" "$EMERGENCY_BACKUP"
+          echo "Current state backed up as: $EMERGENCY_BACKUP"
+        else
+          echo "No current container running"
+        fi
+    
+    - name: Restore backup
+      run: |
+        echo "Restoring backup: $BACKUP_CONTAINER"
+        
+        # Rename backup to active container
+        ACTIVE_CONTAINER="mev-bot-${{ github.event.inputs.environment }}"
+        docker rename "$BACKUP_CONTAINER" "$ACTIVE_CONTAINER"
+        
+        # Start the restored container
+        docker start "$ACTIVE_CONTAINER"
+        
+        echo "Backup restored and started"
+        sleep 10
+    
+    - name: Verify rollback
+      run: |
+        echo "Verifying rollback..."
+        
+        CONTAINER="mev-bot-${{ github.event.inputs.environment }}"
+        
+        # Check container is running
+        if ! docker ps | grep -q "$CONTAINER"; then
+          echo "❌ Container is not running after rollback"
+          exit 1
+        fi
+        
+        # Health check
+        PORT=8080
+        if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+          PORT=8080
+        fi
+        
+        for i in {1..30}; do
+          if curl -f "http://localhost:$PORT/health" > /dev/null 2>&1; then
+            echo "✅ Health check passed after rollback"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ Health check failed after rollback"
+            exit 1
+          fi
+          sleep 2
+        done
+        
+        # Check logs for errors
+        if docker logs "$CONTAINER" --since 2m | grep -i error; then
+          echo "⚠️  Errors found in logs after rollback"
+        else
+          echo "✅ No errors in logs after rollback"
+        fi
+    
+    - name: Run post-rollback tests
+      run: |
+        echo "Running post-rollback tests..."
+        
+        CONTAINER="mev-bot-${{ github.event.inputs.environment }}"
+        
+        # Test configuration
+        docker exec "$CONTAINER" /usr/local/bin/mev-bot --validate-config
+        echo "✅ Configuration validation passed"
+        
+        # Test metrics endpoint
+        PORT=9090
+        curl -f "http://localhost:$PORT/metrics" > /dev/null
+        echo "✅ Metrics endpoint accessible"
+        
+        # Quick functionality test
+        timeout 30s docker exec "$CONTAINER" /usr/local/bin/mev-bot --dry-run --duration 10s || true
+        echo "✅ Basic functionality test completed"
+    
+    - name: Log rollback completion
+      run: |
+        echo "📝 Rollback completed successfully"
+        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "Restored backup: $BACKUP_CONTAINER"
+        echo "Reason: ${{ github.event.inputs.reason }}"
+        echo "Completed by: ${{ github.actor }}"
+        echo "Completion time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        
+        # Log to file for audit trail
+        cat >> rollback-log.txt << EOF
+        Rollback Event:
+        - Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+        - Environment: ${{ github.event.inputs.environment }}
+        - Backup Restored: $BACKUP_CONTAINER
+        - Reason: ${{ github.event.inputs.reason }}
+        - Executed By: ${{ github.actor }}
+        - Status: SUCCESS
+        EOF
+    
+    - name: Cleanup on failure
+      if: failure()
+      run: |
+        echo "🚨 Rollback failed - attempting cleanup"
+        
+        # Try to restore emergency backup if it exists
+        EMERGENCY_BACKUP=$(docker ps -a --filter "name=mev-bot-${{ github.event.inputs.environment }}-emergency-" --format "{{.Names}}" | head -n 1)
+        
+        if [ -n "$EMERGENCY_BACKUP" ]; then
+          echo "Attempting to restore emergency backup: $EMERGENCY_BACKUP"
+          
+          docker stop "mev-bot-${{ github.event.inputs.environment }}" 2>/dev/null || true
+          docker rename "mev-bot-${{ github.event.inputs.environment }}" "mev-bot-${{ github.event.inputs.environment }}-failed-rollback" 2>/dev/null || true
+          docker rename "$EMERGENCY_BACKUP" "mev-bot-${{ github.event.inputs.environment }}"
+          docker start "mev-bot-${{ github.event.inputs.environment }}"
+          
+          echo "Emergency backup restored"
+        fi
+        
+        # Log failure
+        cat >> rollback-log.txt << EOF
+        Rollback Event:
+        - Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+        - Environment: ${{ github.event.inputs.environment }}
+        - Backup Attempted: $BACKUP_CONTAINER
+        - Reason: ${{ github.event.inputs.reason }}
+        - Executed By: ${{ github.actor }}
+        - Status: FAILED
+        - Emergency Action: Manual intervention required
+        EOF
+        
+        echo "❌ Rollback failed - manual intervention required"
+    
+    - name: Upload rollback log
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: rollback-log-${{ github.event.inputs.environment }}-${{ github.run_number }}
+        path: rollback-log.txt

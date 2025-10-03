@@ -1,0 +1,66 @@
+[package]
+name = "mev-core"
+version = "0.1.0"
+edition = "2021"
+description = "MEV Bot - Core utilities and types"
+
+[[bin]]
+name = "reorg-simulator"
+path = "src/bin/reorg-simulator.rs"
+
+[[bin]]
+name = "reorg-simulation"
+path = "src/bin/reorg-simulation.rs"
+
+[[bin]]
+name = "simulation-test"
+path = "src/bin/simulation-test.rs"
+
+[[bin]]
+name = "simulation-api-server"
+path = "src/bin/simulation-api-server.rs"
+
+[[bin]]
+name = "rpc-abi-benchmark"
+path = "src/bin/rpc-abi-benchmark.rs"
+
+[[bin]]
+name = "grpc-simulation-server"
+path = "src/bin/grpc-simulation-server.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+ethers = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+prometheus = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+num_cpus = { workspace = true }
+rusqlite = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures = "0.3"
+tokio-tungstenite = { workspace = true }
+reqwest = { workspace = true }
+crossbeam = { workspace = true }
+async-trait = "0.1"
+rand = { workspace = true }
+hex = "0.4"
+tonic = { workspace = true }
+prost = { workspace = true }
+aes-gcm = "0.10"
+pbkdf2 = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+
+[build-dependencies]
+tonic-build = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"

@@ -1,0 +1,116 @@
+# Docker Compose for MEV Bot Monitoring
+
+services:
+  # MEV Bot Application
+  mev-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mev-bot
+    restart: unless-stopped
+    environment:
+      - RUST_LOG=info
+      - PROFILE=dev
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+    networks:
+      - mev-network
+    depends_on:
+      - prometheus
+      - loki
+    ports:
+      - "3000:3000"
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: mev-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - mev-network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: mev-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - mev-network
+    depends_on:
+      - prometheus
+
+  # Loki for log aggregation
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: mev-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - mev-network
+
+  # Promtail for log shipping
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: mev-promtail
+    restart: unless-stopped
+    volumes:
+      - ./logs:/var/log/mev-bot:ro
+      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - mev-network
+    depends_on:
+      - loki
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: mev-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mev-network
+
+networks:
+  mev-network:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  redis_data:

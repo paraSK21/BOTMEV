@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package simulation;
+
+// Simulation service for MEV bot
+service SimulationService {
+    // Simulate a single bundle
+    rpc SimulateBundle(SimulateBundleRequest) returns (SimulateBundleResponse);
+    
+    // Simulate multiple bundles in batch
+    rpc SimulateBundles(SimulateBundlesRequest) returns (SimulateBundlesResponse);
+    
+    // Get simulation service health and statistics
+    rpc GetHealth(HealthRequest) returns (HealthResponse);
+    
+    // Get simulation statistics
+    rpc GetStats(StatsRequest) returns (StatsResponse);
+}
+
+// Request to simulate a bundle
+message SimulateBundleRequest {
+    SimulationBundle bundle = 1;
+}
+
+// Response from bundle simulation
+message SimulateBundleResponse {
+    SimulationResult result = 1;
+}
+
+// Request to simulate multiple bundles
+message SimulateBundlesRequest {
+    repeated SimulationBundle bundles = 1;
+}
+
+// Response from batch simulation
+message SimulateBundlesResponse {
+    repeated SimulationResult results = 1;
+}
+
+// Health check request
+message HealthRequest {}
+
+// Health check response
+message HealthResponse {
+    bool healthy = 1;
+    string status = 2;
+    SimulationStats stats = 3;
+}
+
+// Statistics request
+message StatsRequest {}
+
+// Statistics response
+message StatsResponse {
+    SimulationStats stats = 1;
+}
+
+// Simulation bundle definition
+message SimulationBundle {
+    string id = 1;
+    repeated SimulationTransaction transactions = 2;
+    optional uint64 block_number = 3;
+    optional uint64 timestamp = 4;
+    optional string base_fee = 5; // U256 as string
+    map<string, StateOverride> state_overrides = 6; // Address as string key
+}
+
+// Individual transaction in a bundle
+message SimulationTransaction {
+    string from = 1; // Address as hex string
+    optional string to = 2; // Address as hex string
+    string value = 3; // U256 as string
+    string gas_limit = 4; // U256 as string
+    string gas_price = 5; // U256 as string
+    string data = 6; // Bytes as hex string
+    optional string nonce = 7; // U256 as string
+}
+
+// State override for simulation
+message StateOverride {
+    optional string balance = 1; // U256 as string
+    optional string nonce = 2; // U256 as string
+    optional string code = 3; // Bytes as hex string
+    map<string, string> state = 4; // H256 -> H256 mapping as hex strings
+    map<string, string> state_diff = 5; // H256 -> H256 mapping as hex strings
+}
+
+// Simulation result
+message SimulationResult {
+    string bundle_id = 1;
+    bool success = 2;
+    string gas_used = 3; // U256 as string
+    string gas_cost = 4; // U256 as string
+    ProfitEstimate profit_estimate = 5;
+    repeated TransactionResult transaction_results = 6;
+    double simulation_time_ms = 7;
+    optional string error_message = 8;
+    uint64 block_number = 9;
+    string effective_gas_price = 10; // U256 as string
+    optional string revert_reason = 11;
+}
+
+// Individual transaction result
+message TransactionResult {
+    bool success = 1;
+    string gas_used = 2; // U256 as string
+    string gas_estimate = 3; // U256 as string
+    optional string return_data = 4; // Bytes as hex string
+    repeated SimulationLog logs = 5;
+    optional string error = 6;
+    optional string revert_reason = 7;
+    string effective_gas_price = 8; // U256 as string
+}
+
+// Simulation log entry
+message SimulationLog {
+    string address = 1; // Address as hex string
+    repeated string topics = 2; // H256 as hex strings
+    string data = 3; // Bytes as hex string
+}
+
+// Profit estimation
+message ProfitEstimate {
+    string gross_profit_wei = 1; // U256 as string
+    string gas_cost_wei = 2; // U256 as string
+    string net_profit_wei = 3; // U256 as string
+    double profit_margin = 4;
+    double confidence = 5;
+}
+
+// Simulation statistics
+message SimulationStats {
+    uint32 active_simulations = 1;
+    uint32 max_concurrent = 2;
+    uint64 timeout_ms = 3;
+    string rpc_url = 4;
+    uint64 total_simulations = 5;
+    uint64 successful_simulations = 6;
+    uint64 failed_simulations = 7;
+    double average_simulation_time_ms = 8;
+}

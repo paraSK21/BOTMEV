@@ -1,0 +1,64 @@
+[workspace]
+members = [
+    "crates/mev-bot",
+    "crates/mev-core", 
+    "crates/mev-strategies",
+    "crates/mev-mempool",
+    "crates/mev-config"
+]
+resolver = "2"
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+clap = { version = "4.0", features = ["derive"] }
+dotenv = "0.15"
+ethers = "2.0"
+reqwest = { version = "0.11", features = ["json"] }
+uuid = { version = "1.0", features = ["v4"] }
+
+# Day 2: Mempool ingestion dependencies
+tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
+futures-util = "0.3"
+crossbeam = "0.8"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+ethabi = "18.0"
+
+# Day 3: Metrics and monitoring dependencies
+prometheus = "0.13"
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+hyper = "1.0"
+rand = "0.8"
+num_cpus = "1.16"
+
+# Day 3: State persistence
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Strategy system dependencies
+async-trait = "0.1"
+
+# gRPC dependencies for simulation API
+tonic = "0.10"
+prost = "0.12"
+tonic-build = "0.10"
+
+# Benchmarking dependencies
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true

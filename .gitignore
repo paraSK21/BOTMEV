@@ -1,0 +1,40 @@
+# Rust
+/target
+Cargo.lock
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Monitoring data
+monitoring/prometheus/data/
+monitoring/grafana/data/
+monitoring/loki/data/
+
+# Private keys and sensitive data
+*.pem
+*.key
+private_keys/
+secrets/
+
+# Temporary files
+tmp/
+temp/

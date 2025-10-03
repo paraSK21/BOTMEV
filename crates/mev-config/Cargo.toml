@@ -1,0 +1,12 @@
+[package]
+name = "mev-config"
+version = "0.1.0"
+edition = "2021"
+description = "MEV Bot - Configuration management"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+anyhow = { workspace = true }
+dotenv = { workspace = true }

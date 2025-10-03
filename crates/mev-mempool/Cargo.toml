@@ -1,0 +1,55 @@
+[package]
+name = "mev-mempool"
+version = "0.1.0"
+edition = "2021"
+description = "MEV Bot - Mempool monitoring and transaction analysis"
+
+[[bin]]
+name = "mempool-service"
+path = "src/main.rs"
+
+[[bin]]
+name = "metrics-server"
+path = "src/bin/metrics-server.rs"
+
+[[bin]]
+name = "latency-benchmark"
+path = "src/bin/latency-benchmark.rs"
+
+[[bin]]
+name = "backpressure-test"
+path = "src/bin/backpressure-test.rs"
+
+[[bin]]
+name = "filter-test"
+path = "src/bin/filter-test.rs"
+
+[[bin]]
+name = "performance-test"
+path = "src/bin/performance-test.rs"
+
+[dependencies]
+mev-core = { path = "../mev-core" }
+tracing-subscriber = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+ethers = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+
+# Day 2: Mempool ingestion
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+crossbeam = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+ethabi = { workspace = true }
+
+# Day 3: Metrics
+prometheus = { workspace = true }
+rand = "0.8"
+serde_yaml = { workspace = true }
+num_cpus = "1.16"

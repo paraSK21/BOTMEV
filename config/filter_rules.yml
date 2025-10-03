@@ -1,0 +1,292 @@
+# MEV Bot Filter Rules Configuration
+# This file defines the transaction filtering rules for the mempool processing system
+
+rules:
+  # High Priority Rules (200+) - Process first
+  - name: "critical_spam_filter"
+    enabled: true
+    priority: 250
+    description: "Reject obvious spam transactions with zero value and very low gas"
+    conditions:
+      - type: "ValueRange"
+        max_wei: "0"
+      - type: "GasPriceRange"
+        max_gwei: 5
+      - type: "DataSize"
+        max_bytes: 4
+    action:
+      type: "Reject"
+
+  - name: "emergency_rate_limit"
+    enabled: true
+    priority: 240
+    description: "Emergency rate limiting during high load"
+    conditions: []
+    action:
+      type: "RateLimit"
+      max_per_second: 1000
+
+  # MEV Opportunity Detection (150-199)
+  - name: "uniswap_v2_swaps"
+    enabled: true
+    priority: 180
+    description: "Detect Uniswap V2 swap transactions"
+    conditions:
+      - type: "TargetType"
+        types: ["UniswapV2"]
+      - type: "FunctionSignature"
+        signatures: 
+          - "0x38ed1739"  # swapExactTokensForTokens
+          - "0x8803dbee"  # swapTokensForExactTokens
+          - "0x7ff36ab5"  # swapExactETHForTokens
+          - "0x18cbafe5"  # swapExactTokensForETH
+    action:
+      type: "Tag"
+      tags: ["uniswap_v2", "swap", "mev_opportunity"]
+
+  - name: "uniswap_v3_swaps"
+    enabled: true
+    priority: 175
+    description: "Detect Uniswap V3 swap transactions"
+    conditions:
+      - type: "TargetType"
+        types: ["UniswapV3"]
+      - type: "FunctionSignature"
+        signatures:
+          - "0x414bf389"  # exactInputSingle
+          - "0xc04b8d59"  # exactInput
+          - "0xdb3e2198"  # exactOutputSingle
+          - "0x09b81346"  # exactOutput
+    action:
+      type: "Tag"
+      tags: ["uniswap_v3", "swap", "mev_opportunity"]
+
+  - name: "large_arbitrage_opportunities"
+    enabled: true
+    priority: 170
+    description: "High-value transactions that might be arbitrage opportunities"
+    conditions:
+      - type: "ValueRange"
+        min_wei: "10000000000000000000"  # 10 ETH
+      - type: "TargetType"
+        types: ["UniswapV2", "UniswapV3", "SushiSwap", "Curve"]
+    action:
+      type: "SetPriority"
+      level: 255
+
+  - name: "sandwich_targets"
+    enabled: true
+    priority: 165
+    description: "Identify potential sandwich attack targets"
+    conditions:
+      - type: "ValueRange"
+        min_wei: "1000000000000000000"   # 1 ETH
+        max_wei: "50000000000000000000"  # 50 ETH
+      - type: "GasPriceRange"
+        min_gwei: 20
+        max_gwei: 200
+      - type: "TargetType"
+        types: ["UniswapV2", "UniswapV3"]
+    action:
+      type: "Tag"
+      tags: ["sandwich_target", "mev_opportunity"]
+
+  # Value-based Filters (100-149)
+  - name: "high_value_transactions"
+    enabled: true
+    priority: 140
+    description: "Tag high-value transactions for priority processing"
+    conditions:
+      - type: "ValueRange"
+        min_wei: "5000000000000000000"  # 5 ETH
+    action:
+      type: "Tag"
+      tags: ["high_value"]
+
+  - name: "whale_transactions"
+    enabled: true
+    priority: 135
+    description: "Detect whale transactions (100+ ETH)"
+    conditions:
+      - type: "ValueRange"
+        min_wei: "100000000000000000000"  # 100 ETH
+    action:
+      type: "Tag"
+      tags: ["whale", "high_priority"]
+
+  - name: "medium_value_filter"
+    enabled: true
+    priority: 120
+    description: "Medium priority for moderate value transactions"
+    conditions:
+      - type: "ValueRange"
+        min_wei: "100000000000000000"    # 0.1 ETH
+        max_wei: "5000000000000000000"   # 5 ETH
+    action:
+      type: "SetPriority"
+      level: 160
+
+  # Gas Price Filters (80-99)
+  - name: "high_gas_priority"
+    enabled: true
+    priority: 95
+    description: "Prioritize high gas price transactions"
+    conditions:
+      - type: "GasPriceRange"
+        min_gwei: 100
+    action:
+      type: "Tag"
+      tags: ["high_gas", "urgent"]
+
+  - name: "gas_war_detection"
+    enabled: true
+    priority: 90
+    description: "Detect potential gas wars (very high gas prices)"
+    conditions:
+      - type: "GasPriceRange"
+        min_gwei: 500
+    action:
+      type: "Tag"
+      tags: ["gas_war", "extreme_priority"]
+
+  # Contract-specific Filters (60-79)
+  - name: "known_dex_contracts"
+    enabled: true
+    priority: 75
+    description: "Whitelist known DEX router contracts"
+    conditions:
+      - type: "ContractAddress"
+        whitelist: true
+        addresses:
+          - "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"  # Uniswap V2 Router
+          - "0xE592427A0AEce92De3Edee1F18E0157C05861564"  # Uniswap V3 Router
+          - "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F"  # SushiSwap Router
+          - "0x1111111254fb6c44bAC0beD2854e76F90643097d"  # 1inch Router
+    action:
+      type: "Tag"
+      tags: ["known_dex", "trusted"]
+
+  - name: "flashloan_contracts"
+    enabled: true
+    priority: 70
+    description: "Detect flashloan contract interactions"
+    conditions:
+      - type: "ContractAddress"
+        whitelist: true
+        addresses:
+          - "0x398eC7346DcD622eDc5ae82352F02bE94C62d119"  # Aave V2 Lending Pool
+          - "0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9"  # Aave V2 Lending Pool
+          - "0x3dfd23A6c5E8BbcFc9581d2E864a68feb6a076d3"  # Aave Flashloan
+    action:
+      type: "Tag"
+      tags: ["flashloan", "complex_strategy"]
+
+  # Time-based Filters (40-59)
+  - name: "trading_hours_priority"
+    enabled: true
+    priority: 55
+    description: "Higher priority during active trading hours (UTC)"
+    conditions:
+      - type: "TimeOfDay"
+        start_hour: 13  # 1 PM UTC (9 AM EST)
+        end_hour: 21    # 9 PM UTC (5 PM EST)
+    action:
+      type: "SetPriority"
+      level: 180
+
+  - name: "off_hours_rate_limit"
+    enabled: false
+    priority: 50
+    description: "Rate limit during off hours to save resources"
+    conditions:
+      - type: "TimeOfDay"
+        start_hour: 2   # 2 AM UTC
+        end_hour: 8     # 8 AM UTC
+    action:
+      type: "RateLimit"
+      max_per_second: 100
+
+  # Data Pattern Filters (20-39)
+  - name: "multicall_detection"
+    enabled: true
+    priority: 35
+    description: "Detect multicall transactions (batch operations)"
+    conditions:
+      - type: "DataPattern"
+        pattern: "0x252dba42"  # multicall function signature
+        case_sensitive: false
+    action:
+      type: "Tag"
+      tags: ["multicall", "batch_operation"]
+
+  - name: "large_calldata_filter"
+    enabled: true
+    priority: 30
+    description: "Filter transactions with large calldata"
+    conditions:
+      - type: "DataSize"
+        min_bytes: 10000  # 10KB
+    action:
+      type: "Tag"
+      tags: ["large_calldata", "complex"]
+
+  # Quality Filters (1-19)
+  - name: "dust_transaction_filter"
+    enabled: true
+    priority: 15
+    description: "Filter out dust transactions"
+    conditions:
+      - type: "ValueRange"
+        max_wei: "1000000000000000"  # 0.001 ETH
+      - type: "GasPriceRange"
+        max_gwei: 15
+    action:
+      type: "SetPriority"
+      level: 50
+
+  - name: "failed_transaction_pattern"
+    enabled: true
+    priority: 10
+    description: "Detect likely failed transaction patterns"
+    conditions:
+      - type: "GasPriceRange"
+        max_gwei: 5
+      - type: "DataSize"
+        max_bytes: 4
+    action:
+      type: "Tag"
+      tags: ["likely_failed", "low_priority"]
+
+  # Blacklist Filters (High Priority for Rejection)
+  - name: "known_spam_contracts"
+    enabled: true
+    priority: 200
+    description: "Reject transactions to known spam contracts"
+    conditions:
+      - type: "ContractAddress"
+        whitelist: false
+        addresses:
+          - "0x0000000000000000000000000000000000000000"  # Null address
+          # Add known spam contract addresses here
+    action:
+      type: "Reject"
+
+  - name: "suspicious_sender_filter"
+    enabled: false
+    priority: 190
+    description: "Filter transactions from suspicious senders"
+    conditions:
+      - type: "SenderAddress"
+        whitelist: false
+        addresses:
+          # Add suspicious addresses here when identified
+          - "0x1234567890123456789012345678901234567890"
+    action:
+      type: "Reject"
+
+settings:
+  max_rules_per_transaction: 25
+  detailed_logging: false
+  default_priority: 128
+  enable_metrics: true
+  filter_timeout_ms: 5

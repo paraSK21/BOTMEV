@@ -1,0 +1,31 @@
+[build]
+# Enable all CPU features for performance
+rustflags = ["-C", "target-cpu=native"]
+
+[env]
+# Test environment variables
+MEV_BOT_TEST_RPC_URL = { value = "http://localhost:8545", force = true }
+MEV_BOT_TEST_WS_URL = { value = "ws://localhost:8545", force = true }
+MEV_BOT_TEST_CHAIN_ID = { value = "31337", force = true }
+
+# Logging configuration for tests
+RUST_LOG = { value = "debug", force = false }
+RUST_BACKTRACE = { value = "1", force = false }
+
+[alias]
+# Convenient test aliases
+test-unit = "test --lib --bins"
+test-integration = "test --test '*integration*'"
+test-all = "test --workspace"
+test-coverage = "tarpaulin --all-features --workspace --timeout 300 --out Html --output-dir ./coverage"
+
+# Benchmark aliases
+bench-all = "bench --workspace"
+bench-perf = "bench --bench performance"
+
+# Quality checks
+check-fmt = "fmt --all -- --check"
+check-clippy = "clippy --all-targets --all-features -- -D warnings"
+check-audit = "audit"
+check-deny = "deny check"
+check-all = ["check-fmt", "check-clippy", "check-audit", "check-deny"]
