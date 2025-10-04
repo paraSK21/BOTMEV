@@ -4,12 +4,11 @@ use mev_core::{MevCore, ParsedTransaction, PrometheusMetrics, TargetType, Transa
 use mev_mempool::MempoolService;
 use mev_strategies::{ArbitrageStrategy, Strategy, StrategyEngine, StrategyEngineConfig};
 use mev_hyperliquid::{
-    HyperLiquidConfig, HyperLiquidMetrics, HyperLiquidWsService, TradeDataAdapter,
-    HyperLiquidMessage, MessageData,
+    HyperLiquidConfig, HyperLiquidMetrics, HyperLiquidServiceManager,
+    MarketDataEvent, StateUpdateEvent, TradeDataAdapter,
 };
 use tracing::{info, error, warn, debug};
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -78,6 +77,9 @@ async fn main() -> anyhow::Result<()> {
     strategy_engine.register_strategy(arbitrage_strategy).await?;
     
     // Parse mempool mode from config
+    // Note: Mempool monitoring is for standard EVM networks only.
+    // HyperLiquid uses a dual-channel architecture (WebSocket for market data + RPC for blockchain operations)
+    // and does not support mempool queries.
     let mempool_mode = match config.network.mempool_mode.as_deref() {
         Some("websocket") => mev_mempool::MempoolMode::WebSocket,
         Some("polling") => mev_mempool::MempoolMode::Polling,
@@ -157,14 +159,22 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Initialize HyperLiquid integration if enabled
-    let hyperliquid_handle = if let Some(hl_config) = &config.hyperliquid {
+    // HyperLiquid uses a dual-channel architecture:
+    // - WebSocket for real-time market data (trades, order books)
+    // - RPC for blockchain state polling and transaction submission
+    // Note: HyperLiquid EVM does not support mempool queries, so we don't use the mempool service for it.
+    let hyperliquid_manager = if let Some(hl_config) = &config.hyperliquid {
         if hl_config.enabled {
-            info!("HyperLiquid integration enabled, initializing...");
+            info!("HyperLiquid integration enabled, initializing dual-channel architecture (WebSocket + RPC)...");
             
             // Convert config to HyperLiquid config type
+            // Note: The mev-hyperliquid crate has its own config type with optional fields
             let hl_config_typed = HyperLiquidConfig {
                 enabled: hl_config.enabled,
                 ws_url: hl_config.ws_url.clone(),
+                rpc_url: Some(hl_config.rpc_url.clone()),
+                polling_interval_ms: Some(hl_config.polling_interval_ms),
+                private_key: Some(config.network.private_key.clone()), // Use private key from network config
                 trading_pairs: hl_config.trading_pairs.clone(),
                 subscribe_orderbook: hl_config.subscribe_orderbook,
                 reconnect_min_backoff_secs: hl_config.reconnect_min_backoff_secs,
@@ -173,48 +183,49 @@ async fn main() -> anyhow::Result<()> {
                 token_mapping: hl_config.token_mapping.clone(),
             };
             
-            // Create message channel for HyperLiquid messages
-            let (hl_tx, mut hl_rx) = mpsc::unbounded_channel::<HyperLiquidMessage>();
-            
             // Initialize HyperLiquid metrics
             let hl_metrics = Arc::new(HyperLiquidMetrics::new()?);
             
-            // Initialize HyperLiquid WebSocket service
-            let hl_service = Arc::new(HyperLiquidWsService::new(
+            // Create service manager
+            let mut service_manager = HyperLiquidServiceManager::new(
                 hl_config_typed.clone(),
-                hl_tx,
                 hl_metrics.clone(),
-            )?);
+            )?;
             
-            // Initialize trade data adapter
+            info!(
+                trading_pairs = ?hl_config.trading_pairs,
+                ws_url = %hl_config.ws_url,
+                rpc_url = ?hl_config_typed.rpc_url,
+                polling_interval_ms = ?hl_config_typed.polling_interval_ms,
+                "HyperLiquid service manager initialized"
+            );
+            
+            // Get receivers before starting (they can only be taken once)
+            let mut market_data_rx = service_manager.get_market_data_receiver()
+                .expect("Failed to get market data receiver");
+            let mut state_update_rx = service_manager.get_state_update_receiver()
+                .expect("Failed to get state update receiver");
+            
+            // Start the service manager (starts both WebSocket and RPC services)
+            service_manager.start().await?;
+            
+            // Initialize trade data adapter for converting market data to transactions
             let adapter = Arc::new(TradeDataAdapter::new_with_metrics(
                 config.network.chain_id,
                 hl_config.token_mapping.clone(),
                 hl_metrics.clone(),
             )?);
             
-            info!(
-                trading_pairs = ?hl_config.trading_pairs,
-                ws_url = %hl_config.ws_url,
-                "HyperLiquid service initialized"
-            );
-            
-            // Start HyperLiquid WebSocket service
-            let hl_service_clone = hl_service.clone();
-            let hl_service_handle = tokio::spawn(async move {
-                if let Err(e) = hl_service_clone.start().await {
-                    error!("HyperLiquid service error: {}", e);
-                }
-            });
-            
-            // Start HyperLiquid message processor
-            let hl_strategy_engine = strategy_engine.clone();
-            let hl_processor_handle = tokio::spawn(async move {
+            // Spawn task to process market data events
+            let market_data_strategy_engine = strategy_engine.clone();
+            let market_data_handle = tokio::spawn(async move {
                 let mut processed_count = 0u64;
                 
-                while let Some(message) = hl_rx.recv().await {
-                    match message.data {
-                        MessageData::Trade(trade_data) => {
+                info!("Starting HyperLiquid market data processor");
+                
+                while let Some(market_event) = market_data_rx.recv().await {
+                    match market_event {
+                        MarketDataEvent::Trade(trade_data) => {
                             processed_count += 1;
                             
                             debug!(
@@ -250,7 +261,7 @@ async fn main() -> anyhow::Result<()> {
                                     };
                                     
                                     // Evaluate with strategy engine
-                                    match hl_strategy_engine.evaluate_transaction(&parsed_tx).await {
+                                    match market_data_strategy_engine.evaluate_transaction(&parsed_tx).await {
                                         Ok(opportunities) => {
                                             if !opportunities.is_empty() {
                                                 info!(
@@ -281,15 +292,13 @@ async fn main() -> anyhow::Result<()> {
                             }
                             
                             if processed_count % 100 == 0 {
-                                let active_subs = hl_service.active_subscriptions().await;
                                 info!(
                                     processed_total = processed_count,
-                                    active_subscriptions = active_subs,
-                                    "HyperLiquid processor stats"
+                                    "HyperLiquid market data processor stats"
                                 );
                             }
                         }
-                        MessageData::OrderBook(orderbook_data) => {
+                        MarketDataEvent::OrderBook(orderbook_data) => {
                             debug!(
                                 coin = %orderbook_data.coin,
                                 bids = orderbook_data.bids.len(),
@@ -298,16 +307,80 @@ async fn main() -> anyhow::Result<()> {
                             );
                             // Order book processing can be added here in the future
                         }
-                        MessageData::SubscriptionResponse(_) | MessageData::Error(_) => {
-                            // These are handled internally by the WebSocket service
-                        }
                     }
                 }
                 
-                info!("HyperLiquid message processor stopped");
+                info!("HyperLiquid market data processor stopped");
             });
             
-            Some((hl_service_handle, hl_processor_handle))
+            // Spawn task to process state update events
+            let state_update_handle = tokio::spawn(async move {
+                let mut processed_count = 0u64;
+                
+                info!("Starting HyperLiquid state update processor");
+                
+                while let Some(state_event) = state_update_rx.recv().await {
+                    processed_count += 1;
+                    
+                    match &state_event {
+                        StateUpdateEvent::BlockNumber(block_number) => {
+                            debug!(
+                                block_number = block_number,
+                                "Received blockchain state update: new block"
+                            );
+                        }
+                        StateUpdateEvent::StateSnapshot(state) => {
+                            debug!(
+                                block_number = state.block_number,
+                                timestamp = state.timestamp,
+                                token_prices_count = state.token_prices.len(),
+                                "Received blockchain state snapshot"
+                            );
+                        }
+                        StateUpdateEvent::TokenPrice { token, price } => {
+                            debug!(
+                                token = ?token,
+                                price = ?price,
+                                "Received token price update"
+                            );
+                        }
+                        StateUpdateEvent::TransactionConfirmed { tx_hash, block_number, gas_used, status } => {
+                            info!(
+                                tx_hash = ?tx_hash,
+                                block_number = block_number,
+                                gas_used = ?gas_used,
+                                status = status,
+                                "Transaction confirmed"
+                            );
+                        }
+                        StateUpdateEvent::TransactionFailed { tx_hash, reason } => {
+                            warn!(
+                                tx_hash = ?tx_hash,
+                                reason = %reason,
+                                "Transaction failed"
+                            );
+                        }
+                        _ => {
+                            debug!("Received other state update event");
+                        }
+                    }
+                    
+                    // State updates can be used for opportunity validation
+                    // For now, we just log them. Future implementation can combine
+                    // market data with state updates for more sophisticated strategies.
+                    
+                    if processed_count % 50 == 0 {
+                        info!(
+                            processed_total = processed_count,
+                            "HyperLiquid state update processor stats"
+                        );
+                    }
+                }
+                
+                info!("HyperLiquid state update processor stopped");
+            });
+            
+            Some((service_manager, market_data_handle, state_update_handle))
         } else {
             info!("HyperLiquid integration disabled in configuration");
             None
@@ -316,6 +389,14 @@ async fn main() -> anyhow::Result<()> {
         info!("HyperLiquid configuration not found, skipping integration");
         None
     };
+
+    // Log architecture information
+    if config.hyperliquid.as_ref().map_or(false, |c| c.enabled) {
+        info!(
+            "Architecture: HyperLiquid uses dual-channel (WebSocket for market data + RPC for blockchain operations). \
+             Mempool monitoring is not supported on HyperLiquid EVM."
+        );
+    }
 
     info!("Starting services...");
 
@@ -331,29 +412,12 @@ async fn main() -> anyhow::Result<()> {
                 error!("Mempool consumer task error: {}", e);
             }
         }
-        result = async {
-            if let Some((service_handle, processor_handle)) = hyperliquid_handle {
-                tokio::select! {
-                    result = service_handle => {
-                        if let Err(e) = result {
-                            error!("HyperLiquid service task error: {}", e);
-                        }
-                    }
-                    result = processor_handle => {
-                        if let Err(e) = result {
-                            error!("HyperLiquid processor task error: {}", e);
-                        }
-                    }
-                }
-            } else {
-                // If HyperLiquid is not enabled, just wait indefinitely
-                std::future::pending::<()>().await;
-            }
-            Ok::<(), anyhow::Error>(())
+        _ = async {
+            // This branch handles HyperLiquid task completion
+            // We don't actually await the handles here since they should run until shutdown
+            std::future::pending::<()>().await
         } => {
-            if let Err(e) = result {
-                error!("HyperLiquid task error: {}", e);
-            }
+            // This will never complete, just here for structure
         }
         _ = tokio::signal::ctrl_c() => {
             info!("Received shutdown signal");
@@ -361,5 +425,16 @@ async fn main() -> anyhow::Result<()> {
     }
 
     info!("MEV Bot shutting down");
+    
+    // Gracefully stop HyperLiquid service manager if it's running
+    if let Some((mut service_manager, _, _)) = hyperliquid_manager {
+        info!("Stopping HyperLiquid service manager...");
+        if let Err(e) = service_manager.stop().await {
+            error!("Error stopping HyperLiquid service manager: {}", e);
+        } else {
+            info!("HyperLiquid service manager stopped successfully");
+        }
+    }
+    
     Ok(())
 }

@@ -991,6 +991,9 @@ mod tests {
         HyperLiquidConfig {
             enabled: true,
             ws_url: "wss://api.hyperliquid.xyz/ws".to_string(),
+            rpc_url: None,
+            polling_interval_ms: Some(1000),
+            private_key: None,
             trading_pairs: vec!["BTC".to_string(), "ETH".to_string()],
             subscribe_orderbook: false,
             reconnect_min_backoff_secs: 1,

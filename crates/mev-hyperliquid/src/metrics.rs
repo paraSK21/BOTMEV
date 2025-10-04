@@ -2,12 +2,11 @@
 
 use anyhow::Result;
 use prometheus::{
-    register_histogram_vec, register_int_counter_vec, register_int_gauge_vec,
     HistogramVec, IntCounterVec, IntGaugeVec,
 };
 use std::time::Duration;
 
-/// Prometheus metrics collector for HyperLiquid WebSocket service
+/// Prometheus metrics collector for HyperLiquid WebSocket service and RPC operations
 pub struct HyperLiquidMetrics {
     // Gauges for connection state
     pub ws_connected: IntGaugeVec,
@@ -25,6 +24,20 @@ pub struct HyperLiquidMetrics {
     
     // Histograms for latency tracking
     pub message_processing_duration: HistogramVec,
+    
+    // RPC metrics - Counters
+    pub rpc_calls_total: IntCounterVec,
+    pub rpc_errors_total: IntCounterVec,
+    pub tx_submitted_total: IntCounterVec,
+    
+    // RPC metrics - Gauges
+    pub state_poll_interval_seconds: IntGaugeVec,
+    pub state_freshness_seconds: IntGaugeVec,
+    
+    // RPC metrics - Histograms
+    pub rpc_call_duration: HistogramVec,
+    pub tx_confirmation_duration: HistogramVec,
+    pub tx_gas_used: HistogramVec,
 }
 
 impl HyperLiquidMetrics {
@@ -105,6 +118,60 @@ impl HyperLiquidMetrics {
         )?;
         prometheus::register(Box::new(message_processing_duration.clone()))?;
 
+        // RPC counters
+        let rpc_calls_total = IntCounterVec::new(
+            Opts::new("hyperliquid_rpc_calls_total", "Total number of RPC calls made"),
+            &["method", "status"]
+        )?;
+        prometheus::register(Box::new(rpc_calls_total.clone()))?;
+
+        let rpc_errors_total = IntCounterVec::new(
+            Opts::new("hyperliquid_rpc_errors_total", "Total number of RPC errors"),
+            &["method", "error_type"]
+        )?;
+        prometheus::register(Box::new(rpc_errors_total.clone()))?;
+
+        let tx_submitted_total = IntCounterVec::new(
+            Opts::new("hyperliquid_tx_submitted_total", "Total number of transactions submitted"),
+            &["status"]
+        )?;
+        prometheus::register(Box::new(tx_submitted_total.clone()))?;
+
+        // RPC gauges
+        let state_poll_interval_seconds = IntGaugeVec::new(
+            Opts::new("hyperliquid_state_poll_interval_seconds", "Configured blockchain state polling interval in seconds"),
+            &["endpoint"]
+        )?;
+        prometheus::register(Box::new(state_poll_interval_seconds.clone()))?;
+
+        let state_freshness_seconds = IntGaugeVec::new(
+            Opts::new("hyperliquid_state_freshness_seconds", "Time since last successful blockchain state update in seconds"),
+            &["endpoint"]
+        )?;
+        prometheus::register(Box::new(state_freshness_seconds.clone()))?;
+
+        // RPC histograms
+        let rpc_call_duration = HistogramVec::new(
+            prometheus::HistogramOpts::new("hyperliquid_rpc_call_duration_seconds", "Duration of RPC calls")
+                .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+            &["method"]
+        )?;
+        prometheus::register(Box::new(rpc_call_duration.clone()))?;
+
+        let tx_confirmation_duration = HistogramVec::new(
+            prometheus::HistogramOpts::new("hyperliquid_tx_confirmation_duration_seconds", "Time to confirm transactions")
+                .buckets(vec![0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0]),
+            &[]
+        )?;
+        prometheus::register(Box::new(tx_confirmation_duration.clone()))?;
+
+        let tx_gas_used = HistogramVec::new(
+            prometheus::HistogramOpts::new("hyperliquid_tx_gas_used", "Gas used by transactions")
+                .buckets(vec![21000.0, 50000.0, 100000.0, 200000.0, 300000.0, 500000.0, 1000000.0, 2000000.0, 5000000.0]),
+            &["status"]
+        )?;
+        prometheus::register(Box::new(tx_gas_used.clone()))?;
+
         Ok(Self {
             ws_connected,
             active_subscriptions,
@@ -117,6 +184,14 @@ impl HyperLiquidMetrics {
             adaptation_errors_total,
             network_errors_total,
             message_processing_duration,
+            rpc_calls_total,
+            rpc_errors_total,
+            tx_submitted_total,
+            state_poll_interval_seconds,
+            state_freshness_seconds,
+            rpc_call_duration,
+            tx_confirmation_duration,
+            tx_gas_used,
         })
     }
     
@@ -189,6 +264,49 @@ impl HyperLiquidMetrics {
                     &["message_type"]
                 ).unwrap();
                 
+                let rpc_calls_total = IntCounterVec::new(
+                    Opts::new("test_hyperliquid_rpc_calls_total", "Test metric"),
+                    &["method", "status"]
+                ).unwrap();
+                
+                let rpc_errors_total = IntCounterVec::new(
+                    Opts::new("test_hyperliquid_rpc_errors_total", "Test metric"),
+                    &["method", "error_type"]
+                ).unwrap();
+                
+                let tx_submitted_total = IntCounterVec::new(
+                    Opts::new("test_hyperliquid_tx_submitted_total", "Test metric"),
+                    &["status"]
+                ).unwrap();
+                
+                let state_poll_interval_seconds = IntGaugeVec::new(
+                    Opts::new("test_hyperliquid_state_poll_interval_seconds", "Test metric"),
+                    &["endpoint"]
+                ).unwrap();
+                
+                let state_freshness_seconds = IntGaugeVec::new(
+                    Opts::new("test_hyperliquid_state_freshness_seconds", "Test metric"),
+                    &["endpoint"]
+                ).unwrap();
+                
+                let rpc_call_duration = HistogramVec::new(
+                    prometheus::HistogramOpts::new("test_hyperliquid_rpc_call_duration_seconds", "Test metric")
+                        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+                    &["method"]
+                ).unwrap();
+                
+                let tx_confirmation_duration = HistogramVec::new(
+                    prometheus::HistogramOpts::new("test_hyperliquid_tx_confirmation_duration_seconds", "Test metric")
+                        .buckets(vec![0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0]),
+                    &[]
+                ).unwrap();
+                
+                let tx_gas_used = HistogramVec::new(
+                    prometheus::HistogramOpts::new("test_hyperliquid_tx_gas_used", "Test metric")
+                        .buckets(vec![21000.0, 50000.0, 100000.0, 200000.0, 300000.0, 500000.0, 1000000.0, 2000000.0, 5000000.0]),
+                    &["status"]
+                ).unwrap();
+                
                 Self {
                     ws_connected,
                     active_subscriptions,
@@ -201,6 +319,14 @@ impl HyperLiquidMetrics {
                     adaptation_errors_total,
                     network_errors_total,
                     message_processing_duration,
+                    rpc_calls_total,
+                    rpc_errors_total,
+                    tx_submitted_total,
+                    state_poll_interval_seconds,
+                    state_freshness_seconds,
+                    rpc_call_duration,
+                    tx_confirmation_duration,
+                    tx_gas_used,
                 }
             }
         }
@@ -284,6 +410,64 @@ impl HyperLiquidMetrics {
             .with_label_values(&[message_type])
             .observe(duration.as_secs_f64());
     }
+
+    // RPC metric helper methods
+
+    /// Increment RPC calls counter
+    pub fn inc_rpc_calls(&self, method: &str, status: &str) {
+        self.rpc_calls_total
+            .with_label_values(&[method, status])
+            .inc();
+    }
+
+    /// Increment RPC errors counter
+    pub fn inc_rpc_errors(&self, method: &str, error_type: &str) {
+        self.rpc_errors_total
+            .with_label_values(&[method, error_type])
+            .inc();
+    }
+
+    /// Increment transaction submitted counter
+    pub fn inc_tx_submitted(&self, status: &str) {
+        self.tx_submitted_total
+            .with_label_values(&[status])
+            .inc();
+    }
+
+    /// Set state poll interval
+    pub fn set_state_poll_interval(&self, endpoint: &str, interval_seconds: i64) {
+        self.state_poll_interval_seconds
+            .with_label_values(&[endpoint])
+            .set(interval_seconds);
+    }
+
+    /// Set state freshness
+    pub fn set_state_freshness(&self, endpoint: &str, freshness_seconds: i64) {
+        self.state_freshness_seconds
+            .with_label_values(&[endpoint])
+            .set(freshness_seconds);
+    }
+
+    /// Record RPC call duration
+    pub fn record_rpc_call_duration(&self, method: &str, duration: Duration) {
+        self.rpc_call_duration
+            .with_label_values(&[method])
+            .observe(duration.as_secs_f64());
+    }
+
+    /// Record transaction confirmation duration
+    pub fn record_tx_confirmation_duration(&self, duration: Duration) {
+        self.tx_confirmation_duration
+            .with_label_values(&[])
+            .observe(duration.as_secs_f64());
+    }
+
+    /// Record transaction gas used
+    pub fn record_tx_gas_used(&self, status: &str, gas_used: u64) {
+        self.tx_gas_used
+            .with_label_values(&[status])
+            .observe(gas_used as f64);
+    }
 }
 
 #[cfg(test)]
@@ -292,7 +476,7 @@ mod tests {
 
     #[test]
     fn test_hyperliquid_metrics_creation() {
-        let metrics = HyperLiquidMetrics::new_or_default();
+        let _metrics = HyperLiquidMetrics::new_or_default();
         // Just verify it doesn't panic
         assert!(true);
     }
@@ -339,5 +523,33 @@ mod tests {
         metrics.set_active_subscriptions("trades", 5);
         metrics.set_degraded_state("max_failures", true);
         metrics.set_degraded_state("max_failures", false);
+    }
+
+    #[test]
+    fn test_rpc_metrics() {
+        let metrics = HyperLiquidMetrics::new_or_default();
+        
+        // Test RPC call counters
+        metrics.inc_rpc_calls("eth_blockNumber", "success");
+        metrics.inc_rpc_calls("eth_call", "success");
+        metrics.inc_rpc_calls("eth_call", "error");
+        
+        // Test RPC error counters
+        metrics.inc_rpc_errors("eth_blockNumber", "timeout");
+        metrics.inc_rpc_errors("eth_call", "network_error");
+        
+        // Test transaction counters
+        metrics.inc_tx_submitted("success");
+        metrics.inc_tx_submitted("failed");
+        
+        // Test RPC gauges
+        metrics.set_state_poll_interval("rpc_endpoint", 1);
+        metrics.set_state_freshness("rpc_endpoint", 2);
+        
+        // Test RPC histograms
+        metrics.record_rpc_call_duration("eth_blockNumber", Duration::from_millis(50));
+        metrics.record_tx_confirmation_duration(Duration::from_secs(5));
+        metrics.record_tx_gas_used("success", 21000);
+        metrics.record_tx_gas_used("failed", 50000);
     }
 }

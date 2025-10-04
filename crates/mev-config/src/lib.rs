@@ -15,12 +15,18 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperLiquidConfig {
     pub enabled: bool,
+    // WebSocket configuration for market data
     pub ws_url: String,
     pub trading_pairs: Vec<String>,
     pub subscribe_orderbook: bool,
+    // RPC configuration for blockchain operations
+    pub rpc_url: String,
+    pub polling_interval_ms: u64,
+    // Reconnection settings (for WebSocket)
     pub reconnect_min_backoff_secs: u64,
     pub reconnect_max_backoff_secs: u64,
     pub max_consecutive_failures: u32,
+    // Token mapping for cross-exchange arbitrage
     pub token_mapping: std::collections::HashMap<String, String>,
 }
 
@@ -67,10 +73,56 @@ pub struct MonitoringConfig {
     pub log_level: String,
 }
 
+impl HyperLiquidConfig {
+    /// Validates the HyperLiquid configuration
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        // Validate WebSocket URL
+        if self.ws_url.is_empty() {
+            anyhow::bail!("HyperLiquid ws_url cannot be empty when enabled");
+        }
+        if !self.ws_url.starts_with("ws://") && !self.ws_url.starts_with("wss://") {
+            anyhow::bail!("HyperLiquid ws_url must start with ws:// or wss://, got: {}", self.ws_url);
+        }
+
+        // Validate RPC URL
+        if self.rpc_url.is_empty() {
+            anyhow::bail!("HyperLiquid rpc_url cannot be empty when enabled");
+        }
+        if !self.rpc_url.starts_with("http://") && !self.rpc_url.starts_with("https://") {
+            anyhow::bail!("HyperLiquid rpc_url must start with http:// or https://, got: {}", self.rpc_url);
+        }
+
+        // Validate polling interval
+        if self.polling_interval_ms == 0 {
+            anyhow::bail!("HyperLiquid polling_interval_ms must be greater than 0");
+        }
+        if self.polling_interval_ms < 100 {
+            eprintln!("Warning: HyperLiquid polling_interval_ms is very low ({}ms), this may cause rate limiting", self.polling_interval_ms);
+        }
+
+        // Validate trading pairs
+        if self.trading_pairs.is_empty() {
+            anyhow::bail!("HyperLiquid trading_pairs cannot be empty when enabled");
+        }
+
+        Ok(())
+    }
+}
+
 impl Config {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         let config: Config = serde_yaml::from_str(&content)?;
+        
+        // Validate HyperLiquid configuration if present
+        if let Some(ref hyperliquid) = config.hyperliquid {
+            hyperliquid.validate()?;
+        }
+        
         Ok(config)
     }
 

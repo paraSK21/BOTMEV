@@ -1,4 +1,216 @@
+use ethers::types::{Address, Bytes, U256};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// Blockchain state snapshot
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockchainState {
+    /// Current block number
+    pub block_number: u64,
+    
+    /// Block timestamp
+    pub timestamp: u64,
+    
+    /// Token prices (address -> price)
+    pub token_prices: HashMap<Address, U256>,
+    
+    /// Contract states (address -> data)
+    pub contract_states: HashMap<Address, Bytes>,
+}
+
+impl BlockchainState {
+    pub fn new(block_number: u64, timestamp: u64) -> Self {
+        Self {
+            block_number,
+            timestamp,
+            token_prices: HashMap::new(),
+            contract_states: HashMap::new(),
+        }
+    }
+}
+
+/// State update events from blockchain polling
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StateUpdateEvent {
+    /// New block number detected
+    BlockNumber(u64),
+    
+    /// Token price update
+    TokenPrice { token: Address, price: U256 },
+    
+    /// Contract state update
+    ContractState { address: Address, data: Bytes },
+    
+    /// Balance update
+    Balance { address: Address, balance: U256 },
+    
+    /// Full state snapshot
+    StateSnapshot(BlockchainState),
+    
+    /// Transaction confirmation success
+    TransactionConfirmed {
+        tx_hash: ethers::types::TxHash,
+        block_number: u64,
+        gas_used: U256,
+        status: bool,
+    },
+    
+    /// Transaction confirmation failed or timed out
+    TransactionFailed {
+        tx_hash: ethers::types::TxHash,
+        reason: String,
+    },
+}
+
+/// Market data events from WebSocket (wrapper for existing types)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MarketDataEvent {
+    /// Trade data received
+    Trade(TradeData),
+    
+    /// Order book update received
+    OrderBook(OrderBookData),
+}
+
+impl MarketDataEvent {
+    /// Get the coin symbol from the event
+    pub fn coin(&self) -> &str {
+        match self {
+            MarketDataEvent::Trade(trade) => &trade.coin,
+            MarketDataEvent::OrderBook(orderbook) => &orderbook.coin,
+        }
+    }
+    
+    /// Get the timestamp from the event
+    pub fn timestamp(&self) -> u64 {
+        match self {
+            MarketDataEvent::Trade(trade) => trade.timestamp,
+            MarketDataEvent::OrderBook(orderbook) => orderbook.timestamp,
+        }
+    }
+}
+
+/// Type of MEV opportunity
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OpportunityType {
+    /// Arbitrage opportunity between venues
+    Arbitrage {
+        /// Venue to buy from
+        buy_venue: String,
+        
+        /// Venue to sell to
+        sell_venue: String,
+        
+        /// Token address
+        token: Address,
+        
+        /// Spread in basis points (1 bps = 0.01%)
+        spread_bps: u64,
+    },
+    
+    /// Liquidation opportunity
+    Liquidation {
+        /// Position address to liquidate
+        position: Address,
+        
+        /// Collateral token
+        collateral_token: Address,
+        
+        /// Debt token
+        debt_token: Address,
+        
+        /// Expected profit
+        profit: U256,
+    },
+    
+    /// Front-running opportunity
+    FrontRun {
+        /// Target transaction hash
+        target_tx: ethers::types::TxHash,
+        
+        /// Token being traded
+        token: Address,
+        
+        /// Expected price impact
+        price_impact_bps: u64,
+    },
+}
+
+/// Detected MEV opportunity
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Opportunity {
+    /// Type of opportunity
+    pub opportunity_type: OpportunityType,
+    
+    /// Expected profit in wei
+    pub expected_profit: U256,
+    
+    /// Market data that triggered the opportunity
+    pub market_data: MarketDataEvent,
+    
+    /// Blockchain state at detection time
+    pub blockchain_state: BlockchainState,
+    
+    /// Whether the opportunity has been verified via RPC
+    pub verified: bool,
+    
+    /// Timestamp when opportunity was detected (milliseconds)
+    pub detected_at: u64,
+    
+    /// Optional expiration timestamp (milliseconds)
+    pub expires_at: Option<u64>,
+}
+
+impl Opportunity {
+    /// Create a new opportunity
+    pub fn new(
+        opportunity_type: OpportunityType,
+        expected_profit: U256,
+        market_data: MarketDataEvent,
+        blockchain_state: BlockchainState,
+    ) -> Self {
+        Self {
+            opportunity_type,
+            expected_profit,
+            market_data,
+            blockchain_state,
+            verified: false,
+            detected_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            expires_at: None,
+        }
+    }
+    
+    /// Mark the opportunity as verified
+    pub fn mark_verified(&mut self) {
+        self.verified = true;
+    }
+    
+    /// Set expiration time
+    pub fn set_expiration(&mut self, expires_at: u64) {
+        self.expires_at = Some(expires_at);
+    }
+    
+    /// Check if the opportunity has expired
+    pub fn is_expired(&self) -> bool {
+        if let Some(expires_at) = self.expires_at {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            now >= expires_at
+        } else {
+            false
+        }
+    }
+    
+    /// Get the coin/token symbol from the opportunity
+    pub fn coin(&self) -> &str {
+        self.market_data.coin()
+    }
+}
 
 /// Configuration for WebSocket reconnection behavior
 #[derive(Debug, Clone)]
@@ -346,5 +558,163 @@ mod tests {
         assert!(!trade_msg.is_orderbook());
         assert!(!trade_msg.is_error());
         assert!(!trade_msg.is_subscription_response());
+    }
+
+    #[test]
+    fn test_market_data_event() {
+        let trade = TradeData {
+            coin: "BTC".to_string(),
+            side: TradeSide::Buy,
+            price: 45000.0,
+            size: 1.0,
+            timestamp: 1696348800000,
+            trade_id: "123".to_string(),
+        };
+        
+        let event = MarketDataEvent::Trade(trade.clone());
+        assert_eq!(event.coin(), "BTC");
+        assert_eq!(event.timestamp(), 1696348800000);
+        
+        let orderbook = OrderBookData {
+            coin: "ETH".to_string(),
+            bids: vec![OrderBookLevel::new(3000.0, 10.0)],
+            asks: vec![OrderBookLevel::new(3001.0, 5.0)],
+            timestamp: 1696348900000,
+        };
+        
+        let event = MarketDataEvent::OrderBook(orderbook);
+        assert_eq!(event.coin(), "ETH");
+        assert_eq!(event.timestamp(), 1696348900000);
+    }
+
+    #[test]
+    fn test_opportunity_creation() {
+        let trade = TradeData {
+            coin: "BTC".to_string(),
+            side: TradeSide::Buy,
+            price: 45000.0,
+            size: 1.0,
+            timestamp: 1696348800000,
+            trade_id: "123".to_string(),
+        };
+        
+        let market_data = MarketDataEvent::Trade(trade);
+        let blockchain_state = BlockchainState::new(1000, 1696348800);
+        
+        let opportunity = Opportunity::new(
+            OpportunityType::Arbitrage {
+                buy_venue: "HyperLiquid".to_string(),
+                sell_venue: "Uniswap".to_string(),
+                token: Address::zero(),
+                spread_bps: 50,
+            },
+            U256::from(1000000),
+            market_data,
+            blockchain_state,
+        );
+        
+        assert!(!opportunity.verified);
+        assert_eq!(opportunity.coin(), "BTC");
+        assert_eq!(opportunity.expected_profit, U256::from(1000000));
+        assert!(!opportunity.is_expired());
+    }
+
+    #[test]
+    fn test_opportunity_verification() {
+        let trade = TradeData {
+            coin: "BTC".to_string(),
+            side: TradeSide::Buy,
+            price: 45000.0,
+            size: 1.0,
+            timestamp: 1696348800000,
+            trade_id: "123".to_string(),
+        };
+        
+        let market_data = MarketDataEvent::Trade(trade);
+        let blockchain_state = BlockchainState::new(1000, 1696348800);
+        
+        let mut opportunity = Opportunity::new(
+            OpportunityType::Arbitrage {
+                buy_venue: "HyperLiquid".to_string(),
+                sell_venue: "Uniswap".to_string(),
+                token: Address::zero(),
+                spread_bps: 50,
+            },
+            U256::from(1000000),
+            market_data,
+            blockchain_state,
+        );
+        
+        assert!(!opportunity.verified);
+        opportunity.mark_verified();
+        assert!(opportunity.verified);
+    }
+
+    #[test]
+    fn test_opportunity_expiration() {
+        let trade = TradeData {
+            coin: "BTC".to_string(),
+            side: TradeSide::Buy,
+            price: 45000.0,
+            size: 1.0,
+            timestamp: 1696348800000,
+            trade_id: "123".to_string(),
+        };
+        
+        let market_data = MarketDataEvent::Trade(trade);
+        let blockchain_state = BlockchainState::new(1000, 1696348800);
+        
+        let mut opportunity = Opportunity::new(
+            OpportunityType::Liquidation {
+                position: Address::zero(),
+                collateral_token: Address::zero(),
+                debt_token: Address::zero(),
+                profit: U256::from(500000),
+            },
+            U256::from(500000),
+            market_data,
+            blockchain_state,
+        );
+        
+        // Not expired without expiration set
+        assert!(!opportunity.is_expired());
+        
+        // Set expiration in the past
+        opportunity.set_expiration(1000);
+        assert!(opportunity.is_expired());
+        
+        // Set expiration far in the future
+        let future = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64 + 1000000;
+        opportunity.set_expiration(future);
+        assert!(!opportunity.is_expired());
+    }
+
+    #[test]
+    fn test_blockchain_state_serialization() {
+        let mut state = BlockchainState::new(1000, 1696348800);
+        state.token_prices.insert(Address::zero(), U256::from(45000));
+        
+        // Test that it can be serialized and deserialized
+        let json = serde_json::to_string(&state).unwrap();
+        let deserialized: BlockchainState = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(deserialized.block_number, 1000);
+        assert_eq!(deserialized.timestamp, 1696348800);
+        assert_eq!(deserialized.token_prices.get(&Address::zero()), Some(&U256::from(45000)));
+    }
+
+    #[test]
+    fn test_state_update_event_serialization() {
+        let event = StateUpdateEvent::BlockNumber(1000);
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: StateUpdateEvent = serde_json::from_str(&json).unwrap();
+        
+        match deserialized {
+            StateUpdateEvent::BlockNumber(num) => assert_eq!(num, 1000),
+            _ => panic!("Wrong variant"),
+        }
     }
 }

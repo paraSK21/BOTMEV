@@ -10,8 +10,8 @@ A high-performance, production-ready MEV (Maximal Extractable Value) bot designe
 
 - **Ultra-Low Latency**: ≤20ms median detection latency, ≤25ms decision loop
 - **High Throughput**: ≥200 simulations/second with concurrent processing
-- **Real-Time Mempool Monitoring**: WebSocket-based transaction ingestion with backpressure handling
-- **HyperLiquid Native Integration**: Real-time trade data from HyperLiquid's native WebSocket API for cross-exchange arbitrage
+- **Real-Time Mempool Monitoring**: WebSocket-based transaction ingestion with backpressure handling (Ethereum networks)
+- **HyperLiquid Dual-Channel Integration**: WebSocket for real-time market data + RPC for blockchain operations (no mempool access on HyperLiquid EVM)
 - **Advanced Strategy System**: Pluggable strategies for backrun, sandwich, and custom MEV opportunities
 - **Fork Simulation**: Accurate profit estimation using eth_call with state overrides
 - **Production Monitoring**: Comprehensive Prometheus metrics and Grafana dashboards
@@ -107,11 +107,13 @@ The MEV bot follows a modular, high-performance architecture:
 ### Core Components
 
 - **`mev-core`**: Core types, simulation engine, and bundle management
-- **`mev-mempool`**: WebSocket client, transaction parsing, and filtering
-- **`mev-hyperliquid`**: HyperLiquid native WebSocket integration for real-time trade data
+- **`mev-mempool`**: WebSocket client, transaction parsing, and filtering (not used for HyperLiquid)
+- **`mev-hyperliquid`**: HyperLiquid dual-channel integration (WebSocket for market data, RPC for blockchain operations)
 - **`mev-strategies`**: Strategy implementations and evaluation engine
 - **`mev-config`**: Configuration management and validation
 - **`mev-bot`**: Main binary and orchestration logic
+
+**Note:** HyperLiquid EVM does not support mempool monitoring. The `mev-hyperliquid` crate uses a dual-channel architecture instead: WebSocket for real-time market data from HyperLiquid's native API, and RPC for blockchain state polling and transaction submission.
 
 ## 📦 Installation
 
@@ -165,7 +167,7 @@ network:
   ws_url: "wss://ws.hyperevm.org"
   chain_id: 998
   
-# Mempool Settings
+# Mempool Settings (not applicable to HyperLiquid - see HyperLiquid Integration section)
 mempool:
   max_pending_transactions: 10000
   filter_rules:
@@ -223,15 +225,78 @@ export RUST_LOG="info"
 
 ### HyperLiquid Integration
 
-The bot supports real-time trade monitoring from HyperLiquid's native exchange via WebSocket API:
+The bot integrates with HyperLiquid using a **dual-channel architecture** that combines WebSocket streaming for real-time market data with RPC polling for blockchain operations.
+
+#### Architecture Overview
+
+**Important:** HyperLiquid EVM does not support traditional mempool queries. Unlike standard Ethereum networks, you cannot subscribe to pending transactions on HyperLiquid. The bot uses two separate channels:
+
+1. **WebSocket Channel**: Real-time market data from HyperLiquid's native API (`wss://api.hyperliquid.xyz/ws`)
+2. **RPC Channel**: Blockchain state polling and transaction submission via QuickNode RPC endpoint
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         MEV Bot Core                             │
+│                                                                   │
+│  ┌──────────────────┐         ┌──────────────────────────────┐  │
+│  │  Strategy Engine │◄────────┤   Opportunity Detector       │  │
+│  └────────┬─────────┘         └──────────▲───────────────────┘  │
+│           │                               │                       │
+│           │ Execute                       │ Opportunities         │
+│           ▼                               │                       │
+│  ┌──────────────────┐                    │                       │
+│  │ Transaction      │                    │                       │
+│  │ Executor         │                    │                       │
+│  └────────┬─────────┘                    │                       │
+└───────────┼──────────────────────────────┼───────────────────────┘
+            │                               │
+            │ Submit TX                     │ Market Data + State
+            ▼                               │
+┌───────────────────────────────────────────┼───────────────────────┐
+│           HyperLiquid Integration         │                       │
+│                                           │                       │
+│  ┌────────────────────────────────────────┴─────────────────┐    │
+│  │              HyperLiquid Service Manager                  │    │
+│  └───────┬──────────────────────────────────────┬───────────┘    │
+│          │                                       │                │
+│          ▼                                       ▼                │
+│  ┌──────────────────┐                  ┌──────────────────┐      │
+│  │  WebSocket       │                  │  RPC Client      │      │
+│  │  Service         │                  │  Service         │      │
+│  │                  │                  │                  │      │
+│  │  Market Data     │                  │  State Polling   │      │
+│  │  Streaming       │                  │  TX Submission   │      │
+│  └────────┬─────────┘                  └────────┬─────────┘      │
+└───────────┼──────────────────────────────────────┼────────────────┘
+            │                                       │
+            ▼                                       ▼
+    wss://api.hyperliquid.xyz/ws    https://...quiknode.pro/.../evm
+    (Market Data)                    (Blockchain Operations)
+```
+
+#### Why Dual-Channel Architecture?
+
+HyperLiquid EVM's architecture differs from traditional Ethereum networks:
+
+- **No Mempool Access**: The `eth_subscribe("pendingTransactions")` method is not supported
+- **Native Exchange**: HyperLiquid has a native exchange with its own WebSocket API for market data
+- **EVM Compatibility**: The blockchain layer is EVM-compatible and accessible via standard RPC
+
+This dual-channel approach allows the bot to:
+- Monitor real-time market movements via WebSocket
+- Verify on-chain state and submit transactions via RPC
+- Detect arbitrage opportunities by combining both data sources
+
+#### Configuration
 
 ```yaml
-# HyperLiquid Native WebSocket API Configuration
+# HyperLiquid Dual-Channel Configuration
 hyperliquid:
-  # Enable/disable HyperLiquid WebSocket integration
+  # Enable/disable HyperLiquid integration
   enabled: true
   
-  # WebSocket endpoint for HyperLiquid's native API
+  # WebSocket Configuration (Market Data)
+  # Connects to HyperLiquid's native exchange API for real-time trades
   ws_url: "wss://api.hyperliquid.xyz/ws"
   
   # Trading pairs to monitor (coin symbols)
@@ -244,7 +309,15 @@ hyperliquid:
   # Subscribe to order book updates (optional)
   subscribe_orderbook: false
   
-  # Reconnection settings
+  # RPC Configuration (Blockchain Operations)
+  # Connects to HyperLiquid EVM via QuickNode for state queries and transaction submission
+  rpc_url: "https://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/YOUR_API_KEY/evm"
+  
+  # Polling interval for blockchain state (milliseconds)
+  # Default: 1000ms (1 second)
+  polling_interval_ms: 1000
+  
+  # Reconnection settings (for WebSocket)
   reconnect_min_backoff_secs: 1
   reconnect_max_backoff_secs: 60
   max_consecutive_failures: 10
@@ -258,43 +331,236 @@ hyperliquid:
     ARB: "0x912CE59144191C1204E64559FE8253a0e49E6548"  # ARB
 ```
 
-**Key Features:**
+#### Opportunity Detection Flow
+
+The bot combines data from both channels to detect and execute opportunities:
+
+1. **Market Data Streaming** (WebSocket):
+   - Receives real-time trade data from HyperLiquid exchange
+   - Monitors price movements and trading volume
+   - Detects potential arbitrage opportunities
+
+2. **State Verification** (RPC):
+   - Polls blockchain state at regular intervals
+   - Queries token prices from DEX contracts
+   - Verifies smart contract states
+   - Confirms opportunity conditions on-chain
+
+3. **Opportunity Validation**:
+   - Combines WebSocket market data with RPC blockchain state
+   - Calculates expected profit considering gas costs
+   - Validates that opportunity still exists on-chain
+
+4. **Transaction Execution** (RPC):
+   - Signs transaction with configured private key
+   - Submits via `eth_sendRawTransaction`
+   - Polls for transaction confirmation
+   - Tracks gas usage and success/failure
+
+#### Key Features
+
+**WebSocket Channel:**
 - Real-time trade data streaming from HyperLiquid's native exchange
 - Automatic reconnection with exponential backoff
 - Subscription management with retry logic
 - Order book monitoring (optional)
-- Cross-exchange arbitrage via token mapping
+- Low-latency market data updates
+
+**RPC Channel:**
+- Blockchain state polling at configurable intervals
+- Transaction submission and confirmation tracking
+- Smart contract state queries
+- Retry logic with exponential backoff
+- Circuit breaker for consecutive failures
+
+**Combined Features:**
+- Cross-exchange arbitrage detection
+- On-chain opportunity verification
+- Graceful degradation (continues WebSocket if RPC fails)
 - Comprehensive metrics and monitoring
 
-**Metrics:**
+#### Metrics
+
+**WebSocket Metrics:**
 - `hyperliquid_ws_connected`: Connection status (0/1)
-- `hyperliquid_trades_received_total`: Total trades received
-- `hyperliquid_message_processing_duration_seconds`: Processing latency
+- `hyperliquid_trades_received_total`: Total trades received by coin and side
+- `hyperliquid_message_processing_duration_seconds`: Message processing latency
 - `hyperliquid_active_subscriptions`: Number of active subscriptions
-- `hyperliquid_reconnection_attempts_total`: Reconnection attempts
+- `hyperliquid_reconnection_attempts_total`: Reconnection attempts by reason
 - `hyperliquid_degraded_state`: Degraded state indicator (0/1)
 
-**Troubleshooting:**
+**RPC Metrics:**
+- `hyperliquid_rpc_calls_total`: Total RPC calls by method and status
+- `hyperliquid_rpc_call_duration_seconds`: RPC call latency histogram
+- `hyperliquid_rpc_errors_total`: RPC errors by method and error type
+- `hyperliquid_state_poll_interval_seconds`: Current polling interval
+- `hyperliquid_state_freshness_seconds`: Time since last successful state update
+- `hyperliquid_tx_submitted_total`: Transactions submitted by status
+- `hyperliquid_tx_confirmation_duration_seconds`: Transaction confirmation time
+- `hyperliquid_tx_gas_used`: Gas used by transactions
 
-*Connection Issues:*
+**Opportunity Detection Metrics:**
+- `hyperliquid_opportunities_detected_total`: Opportunities detected by type
+- `hyperliquid_opportunities_verified_total`: Opportunities verified via RPC
+- `hyperliquid_opportunity_detection_latency_seconds`: Detection latency
+
+#### Troubleshooting
+
+##### WebSocket Connection Issues
+
+**Symptoms:** No market data received, `hyperliquid_ws_connected` = 0
+
+**Diagnosis:**
 ```bash
 # Test WebSocket connectivity
 wscat -c wss://api.hyperliquid.xyz/ws
 
 # Check subscription status
 curl http://localhost:9090/metrics | grep hyperliquid_active_subscriptions
+
+# Review WebSocket logs
+docker logs mev-bot | grep "hyperliquid.*ws"
 ```
 
-*No Trades Received:*
-- Verify trading pairs are valid HyperLiquid symbols
+**Solutions:**
+- Verify trading pairs are valid HyperLiquid symbols (BTC, ETH, SOL, etc.)
 - Check if `enabled: true` in configuration
-- Review logs for subscription errors: `docker logs mev-bot | grep hyperliquid`
-
-*Degraded State:*
-- Check network connectivity
-- Verify HyperLiquid API is operational
+- Ensure network allows WebSocket connections (check firewall)
 - Review reconnection metrics: `hyperliquid_reconnection_attempts_total`
 - Service will automatically recover when connection is restored
+
+##### RPC Connection Issues
+
+**Symptoms:** No state updates, `hyperliquid_rpc_errors_total` increasing
+
+**Diagnosis:**
+```bash
+# Test RPC connectivity
+curl -X POST -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+  https://your-quicknode-url.quiknode.pro/YOUR_API_KEY/evm
+
+# Check RPC metrics
+curl http://localhost:9090/metrics | grep hyperliquid_rpc
+
+# Review RPC logs
+docker logs mev-bot | grep "hyperliquid.*rpc"
+```
+
+**Solutions:**
+- Verify QuickNode RPC URL is correct and includes API key
+- Check QuickNode account for rate limits or quota issues
+- Ensure `rpc_url` is configured in `config/mainnet.yaml`
+- Verify network connectivity to QuickNode endpoint
+- Check `hyperliquid_state_freshness_seconds` - high values indicate stale data
+- Review circuit breaker status in logs
+
+##### No Opportunities Detected
+
+**Symptoms:** Bot running but no opportunities found
+
+**Diagnosis:**
+```bash
+# Check both channels are working
+curl http://localhost:9090/metrics | grep -E "hyperliquid_(ws_connected|rpc_calls_total)"
+
+# Review opportunity metrics
+curl http://localhost:9090/metrics | grep hyperliquid_opportunities
+
+# Check logs for detection logic
+docker logs mev-bot | grep "opportunity"
+```
+
+**Solutions:**
+- Verify both WebSocket and RPC channels are connected
+- Check that trading pairs are configured correctly
+- Review token mapping for correct EVM addresses
+- Ensure `polling_interval_ms` is not too high (default: 1000ms)
+- Check strategy configuration for reasonable profit thresholds
+- Monitor market conditions - opportunities may be rare
+
+##### High RPC Latency
+
+**Symptoms:** `hyperliquid_rpc_call_duration_seconds` p95 > 500ms
+
+**Diagnosis:**
+```bash
+# Check RPC latency distribution
+curl http://localhost:9090/metrics | grep hyperliquid_rpc_call_duration_seconds
+
+# Test direct RPC latency
+time curl -X POST -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+  https://your-quicknode-url.quiknode.pro/YOUR_API_KEY/evm
+```
+
+**Solutions:**
+- Consider using a QuickNode endpoint closer to your deployment region
+- Increase `polling_interval_ms` to reduce RPC call frequency
+- Check QuickNode account tier - higher tiers have better performance
+- Monitor network latency between bot and QuickNode
+- Consider caching frequently queried state
+
+##### Transaction Submission Failures
+
+**Symptoms:** `hyperliquid_tx_submitted_total{status="failed"}` increasing
+
+**Diagnosis:**
+```bash
+# Check transaction error types
+curl http://localhost:9090/metrics | grep hyperliquid_tx_errors_total
+
+# Review transaction logs
+docker logs mev-bot | grep "transaction.*failed"
+```
+
+**Solutions:**
+- Verify private key is configured correctly
+- Check account has sufficient balance for gas
+- Review gas price settings in strategy configuration
+- Ensure transactions are properly signed
+- Check for nonce management issues
+- Verify smart contract addresses are correct
+
+##### Degraded State
+
+**Symptoms:** `hyperliquid_degraded_state` = 1
+
+**Diagnosis:**
+```bash
+# Check degraded state reason
+docker logs mev-bot | grep "degraded"
+
+# Review both channel statuses
+curl http://localhost:9090/metrics | grep -E "hyperliquid_(ws_connected|rpc_errors)"
+```
+
+**Solutions:**
+- Check which channel is failing (WebSocket or RPC)
+- Review reconnection attempts and backoff timing
+- Verify both endpoints are operational
+- Check for network connectivity issues
+- Monitor for service recovery - bot continues operating with available channel
+- If persistent, restart the bot: `docker restart mev-bot`
+
+##### General Debugging
+
+```bash
+# View all HyperLiquid metrics
+curl http://localhost:9090/metrics | grep hyperliquid
+
+# Follow logs in real-time
+docker logs -f mev-bot | grep hyperliquid
+
+# Check configuration
+docker exec mev-bot cat /app/config/mainnet.yaml | grep -A 30 hyperliquid
+
+# Test both endpoints
+wscat -c wss://api.hyperliquid.xyz/ws
+curl -X POST https://your-quicknode-url.quiknode.pro/YOUR_API_KEY/evm \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+```
 
 ### Advanced Configuration
 
@@ -379,18 +645,30 @@ Key metrics exposed on `:9090/metrics`:
 - `mev_bot_bundle_success_total`: Successful bundle submissions
 - `mev_bot_profit_eth_total`: Total profit in ETH
 
-**HyperLiquid Metrics:**
+**HyperLiquid Metrics (Dual-Channel):**
+
+*WebSocket Channel (Market Data):*
 - `hyperliquid_ws_connected`: WebSocket connection status (0/1)
 - `hyperliquid_trades_received_total`: Total trades received by coin and side
 - `hyperliquid_message_processing_duration_seconds`: Message processing latency histogram
 - `hyperliquid_active_subscriptions`: Number of active trading pair subscriptions
 - `hyperliquid_reconnection_attempts_total`: Total reconnection attempts by reason
 - `hyperliquid_degraded_state`: Degraded state indicator (0/1)
-- `hyperliquid_connection_errors_total`: Connection errors by type
-- `hyperliquid_subscription_errors_total`: Subscription errors by coin and type
-- `hyperliquid_parse_errors_total`: Message parsing errors by coin
-- `hyperliquid_adaptation_errors_total`: Trade adaptation errors by coin and reason
-- `hyperliquid_network_errors_total`: Network errors by type
+
+*RPC Channel (Blockchain Operations):*
+- `hyperliquid_rpc_calls_total`: Total RPC calls by method and status
+- `hyperliquid_rpc_call_duration_seconds`: RPC call latency histogram by method
+- `hyperliquid_rpc_errors_total`: RPC errors by method and error type
+- `hyperliquid_state_poll_interval_seconds`: Current blockchain state polling interval
+- `hyperliquid_state_freshness_seconds`: Time since last successful state update
+- `hyperliquid_tx_submitted_total`: Transactions submitted by status
+- `hyperliquid_tx_confirmation_duration_seconds`: Transaction confirmation time histogram
+- `hyperliquid_tx_gas_used`: Gas used by transactions histogram
+
+*Opportunity Detection:*
+- `hyperliquid_opportunities_detected_total`: Opportunities detected by type
+- `hyperliquid_opportunities_verified_total`: Opportunities verified via RPC by type
+- `hyperliquid_opportunity_detection_latency_seconds`: Detection latency histogram
 
 ### Grafana Dashboards
 
@@ -606,6 +884,48 @@ cargo bench --bench simulation_engine
 cargo run --bin mev-bot --features dhat-heap
 ```
 
+## ✅ Validation and Testing
+
+### HyperLiquid Mainnet Validation
+
+Before deploying to production, validate the HyperLiquid integration:
+
+```bash
+# Quick validation (5 minutes)
+scripts\validate-hyperliquid-mainnet.bat
+
+# Run integration tests
+cargo test --test hyperliquid_mainnet_validation -- --ignored --nocapture
+
+# Monitor in real-time
+scripts\monitor-hyperliquid.bat
+```
+
+**Validation Documentation:**
+- [Quick Start Guide](VALIDATION_QUICK_START.md) - 5-minute validation checklist
+- [Comprehensive Guide](HYPERLIQUID_MAINNET_VALIDATION.md) - Detailed validation procedures
+
+**What Gets Validated:**
+- ✅ Configuration structure and values
+- ✅ WebSocket connection to HyperLiquid API
+- ✅ RPC connection to QuickNode
+- ✅ Market data streaming (trades, order books)
+- ✅ Blockchain state polling (blocks, prices)
+- ✅ Metrics collection (Prometheus)
+- ✅ Opportunity detection flow
+- ✅ Error handling and resilience
+- ✅ Transaction submission (with caution)
+
+**Requirements Validated:**
+- Dual-channel architecture (WebSocket + RPC)
+- Real-time market data streaming
+- Blockchain state polling
+- Transaction submission and confirmation
+- Comprehensive metrics and monitoring
+- Error handling and graceful degradation
+
+See [HYPERLIQUID_MAINNET_VALIDATION.md](HYPERLIQUID_MAINNET_VALIDATION.md) for complete validation procedures.
+
 ## 📚 Documentation
 
 - [Configuration Guide](docs/configuration.md)
@@ -615,6 +935,8 @@ cargo run --bin mev-bot --features dhat-heap
 - [Security Guidelines](docs/security.md)
 - [API Reference](docs/api.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [HyperLiquid Validation](HYPERLIQUID_MAINNET_VALIDATION.md) - **NEW**
+- [Validation Quick Start](VALIDATION_QUICK_START.md) - **NEW**
 
 ## 🤝 Contributing
 

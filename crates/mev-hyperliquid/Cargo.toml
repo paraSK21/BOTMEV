@@ -16,3 +16,7 @@ tracing = { workspace = true }
 ethers = { workspace = true }
 chrono = { workspace = true }
 prometheus = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+axum = { workspace = true }

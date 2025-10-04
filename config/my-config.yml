@@ -16,17 +16,58 @@ network:
   polling_interval_ms: 300  # Polling interval when using HTTP polling mode
   websocket_timeout_secs: 3  # Timeout for WebSocket subscription attempt
 
-# HyperLiquid Native WebSocket API Configuration
-# This provides real-time trade data from HyperLiquid's native exchange
+# ============================================================================
+# HyperLiquid Dual-Channel Architecture Configuration
+# ============================================================================
+# 
+# IMPORTANT: HyperLiquid EVM does NOT support traditional mempool monitoring.
+# Pending transactions cannot be queried via eth_newPendingTransactionFilter
+# or similar RPC methods.
+#
+# Instead, this bot uses a dual-channel architecture:
+#
+# 1. WebSocket Channel (ws_url):
+#    - Connects to HyperLiquid's native API for real-time market data
+#    - Receives trade executions, order book updates, and price feeds
+#    - Provides low-latency market signals for opportunity detection
+#
+# 2. RPC Channel (rpc_url):
+#    - Polls blockchain state at regular intervals (polling_interval_ms)
+#    - Queries smart contract states, token prices, and balances
+#    - Submits transactions when opportunities are identified
+#    - Tracks transaction confirmations
+#
+# This architecture combines the speed of WebSocket market data with the
+# reliability of RPC blockchain queries to identify and execute profitable
+# trading opportunities without relying on mempool access.
+#
+# ============================================================================
+
 hyperliquid:
-  # Enable/disable HyperLiquid WebSocket integration
-  enabled: false  # DISABLED - Only monitoring EVM mempool
+  # Enable/disable HyperLiquid integration
+  enabled: true
   
-  # WebSocket endpoint for HyperLiquid's native API
+  # WebSocket endpoint for HyperLiquid's native API (market data streaming)
+  # This endpoint provides real-time trades, order books, and market events
   ws_url: "wss://api.hyperliquid.xyz/ws"
   
+  # RPC endpoint for blockchain operations (state queries and transaction submission)
+  # RECOMMENDED: Use QuickNode or another premium RPC provider for better performance
+  # The RPC endpoint is used for:
+  #   - Polling blockchain state (block numbers, contract states, balances)
+  #   - Submitting transactions to the network
+  #   - Tracking transaction confirmations
+  # 
+  # Replace with your QuickNode endpoint URL:
+  rpc_url: "https://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/evm"
+  
+  # Polling interval for RPC blockchain state queries (in milliseconds)
+  # Default: 1000ms (1 second) - adjust based on your latency requirements
+  # Lower values = more frequent updates but higher RPC usage
+  # Higher values = less RPC usage but potentially stale data
+  polling_interval_ms: 1000
+  
   # Trading pairs to monitor (coin symbols)
-  # These are the native HyperLiquid trading pairs, not EVM tokens
   trading_pairs:
     - "BTC"
     - "ETH"
@@ -34,17 +75,15 @@ hyperliquid:
     - "ARB"
   
   # Subscribe to order book updates (optional, provides L2 order book data)
-  # Set to true for more comprehensive market data, false for trades only
   subscribe_orderbook: false
   
-  # Reconnection settings for handling connection failures
-  reconnect_min_backoff_secs: 1    # Minimum wait time between reconnection attempts
-  reconnect_max_backoff_secs: 60   # Maximum wait time (exponential backoff caps here)
-  max_consecutive_failures: 10     # Enter degraded state after this many failures
+  # Reconnection settings for WebSocket connection failures
+  reconnect_min_backoff_secs: 1
+  reconnect_max_backoff_secs: 60
+  max_consecutive_failures: 10
   
   # Token mapping: Maps HyperLiquid coin symbols to EVM token addresses
   # This enables cross-exchange arbitrage between HyperLiquid and EVM DEXes
-  # Format: COIN_SYMBOL: "0x..." (EVM token address)
   token_mapping:
     BTC: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"  # WBTC on Ethereum
     ETH: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"  # WETH on Ethereum

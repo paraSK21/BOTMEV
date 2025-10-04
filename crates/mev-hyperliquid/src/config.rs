@@ -11,6 +11,15 @@ pub struct HyperLiquidConfig {
     /// WebSocket URL for HyperLiquid API
     pub ws_url: String,
     
+    /// RPC URL for blockchain operations (optional)
+    pub rpc_url: Option<String>,
+    
+    /// Polling interval in milliseconds for RPC state polling (optional, default: 1000ms)
+    pub polling_interval_ms: Option<u64>,
+    
+    /// Private key for transaction signing (optional)
+    pub private_key: Option<String>,
+    
     /// List of trading pairs to monitor (e.g., ["BTC", "ETH", "SOL"])
     pub trading_pairs: Vec<String>,
     
@@ -36,6 +45,9 @@ impl Default for HyperLiquidConfig {
         Self {
             enabled: false,
             ws_url: "wss://api.hyperliquid.xyz/ws".to_string(),
+            rpc_url: None,
+            polling_interval_ms: Some(1000),
+            private_key: None,
             trading_pairs: vec!["BTC".to_string(), "ETH".to_string()],
             subscribe_orderbook: false,
             reconnect_min_backoff_secs: 1,
@@ -59,6 +71,34 @@ impl HyperLiquidConfig {
                 "WebSocket URL must start with ws:// or wss://, got: {}",
                 self.ws_url
             ));
+        }
+        
+        // Validate RPC URL if provided
+        if let Some(ref rpc_url) = self.rpc_url {
+            if rpc_url.is_empty() {
+                return Err(anyhow!("RPC URL cannot be empty if provided"));
+            }
+            
+            if !rpc_url.starts_with("http://") && !rpc_url.starts_with("https://") {
+                return Err(anyhow!(
+                    "RPC URL must start with http:// or https://, got: {}",
+                    rpc_url
+                ));
+            }
+        }
+        
+        // Validate polling interval if provided
+        if let Some(interval) = self.polling_interval_ms {
+            if interval == 0 {
+                return Err(anyhow!("Polling interval must be greater than 0"));
+            }
+            
+            if interval < 100 {
+                return Err(anyhow!(
+                    "Polling interval too low ({}ms). Minimum recommended: 100ms",
+                    interval
+                ));
+            }
         }
         
         // Validate trading pairs
