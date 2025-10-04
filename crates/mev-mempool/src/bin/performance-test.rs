@@ -21,10 +21,9 @@ use tokio::{
     fs::File,
     io::AsyncWriteExt,
     signal,
-    sync::mpsc,
-    time::{interval, sleep},
+    time::sleep,
 };
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceTestResult {

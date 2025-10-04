@@ -7,7 +7,7 @@ use mev_core::{
 use mev_strategies::{
     BackrunStrategy, SandwichStrategy, ArbitrageStrategy,
     StrategyEngine, StrategyEngineConfig, ConfigManager, StrategyConfigFile,
-    Strategy, StrategyResult, OpportunityType,
+    Strategy,
 };
 use std::{sync::Arc, time::Instant};
 use tracing::{info, warn};
@@ -211,7 +211,7 @@ async fn evaluate_and_process_transaction(
     );
 
     // Process each opportunity
-    for opportunity in opportunities {
+    for opportunity in &opportunities {
         info!(
             opportunity_id = %opportunity.id,
             strategy = %opportunity.strategy_name,

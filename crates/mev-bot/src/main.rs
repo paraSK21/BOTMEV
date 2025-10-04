@@ -1,7 +1,6 @@
 use clap::{Arg, Command};
 use mev_config::Config;
 use mev_core::{MevCore, ParsedTransaction, PrometheusMetrics, TargetType, Transaction};
-use mev_mempool::MempoolService;
 use mev_strategies::{ArbitrageStrategy, Strategy, StrategyEngine, StrategyEngineConfig};
 use mev_hyperliquid::{
     HyperLiquidConfig, HyperLiquidMetrics, HyperLiquidServiceManager,
@@ -12,6 +11,9 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load environment variables from .env file
+    dotenv::dotenv().ok();
+    
     // Initialize structured JSON logging
     tracing_subscriber::fmt()
         .with_target(true)
@@ -51,9 +53,6 @@ async fn main() -> anyhow::Result<()> {
     };
 
     info!(
-        chain_id = config.network.chain_id,
-        rpc_url = %config.network.rpc_url,
-        ws_url = %config.network.ws_url,
         max_gas_price = config.bot.max_gas_price,
         min_profit_threshold = config.bot.min_profit_threshold,
         "Loaded configuration"
@@ -64,6 +63,19 @@ async fn main() -> anyhow::Result<()> {
     
     // Initialize metrics (shared across all services)
     let metrics = Arc::new(PrometheusMetrics::new()?);
+    
+    // Start monitoring server in background
+    let monitoring_port = config.monitoring.prometheus_port;
+    let monitoring_metrics = metrics.clone();
+    let monitoring_handle = tokio::spawn(async move {
+        use mev_core::metrics::MetricsServer;
+        let metrics_server = MetricsServer::new(monitoring_metrics, monitoring_port);
+        if let Err(e) = metrics_server.start().await {
+            error!("Monitoring server error: {}", e);
+        }
+    });
+    
+    info!("Monitoring server starting on port {}", monitoring_port);
     
     // Initialize strategy engine
     let strategy_engine = Arc::new(StrategyEngine::new(
@@ -76,87 +88,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Registering strategy: {}", arbitrage_strategy.name());
     strategy_engine.register_strategy(arbitrage_strategy).await?;
     
-    // Parse mempool mode from config
-    // Note: Mempool monitoring is for standard EVM networks only.
-    // HyperLiquid uses a dual-channel architecture (WebSocket for market data + RPC for blockchain operations)
-    // and does not support mempool queries.
-    let mempool_mode = match config.network.mempool_mode.as_deref() {
-        Some("websocket") => mev_mempool::MempoolMode::WebSocket,
-        Some("polling") => mev_mempool::MempoolMode::Polling,
-        _ => mev_mempool::MempoolMode::Auto, // Default to auto
-    };
-    
-    let mempool_service = Arc::new(
-        MempoolService::new_with_metrics(
-            config.network.ws_url.clone(),
-            config.network.rpc_url.clone(),
-            metrics.clone(),
-        )?
-        .with_mode(mempool_mode)
-        .with_polling_interval(config.network.polling_interval_ms.unwrap_or(300))
-        .with_websocket_timeout(config.network.websocket_timeout_secs.unwrap_or(3))
-    );
-
-    // Start transaction consumer for mempool in background
-    let consumer_service = Arc::clone(&mempool_service);
-    let mempool_strategy_engine = strategy_engine.clone();
-    let consumer_handle = tokio::spawn(async move {
-        let consumer = consumer_service.get_consumer();
-        let mut processed_count = 0u64;
-        
-        loop {
-            // Consume transactions from ring buffer
-            let transactions = consumer.consume_batch(10);
-            
-            if !transactions.is_empty() {
-                processed_count += transactions.len() as u64;
-                
-                for tx in transactions {
-                    debug!(
-                        tx_hash = %tx.transaction.hash,
-                        target_type = ?tx.target_type,
-                        processing_time_ms = tx.processing_time_ms,
-                        "Consumed transaction from mempool buffer"
-                    );
-                    
-                    // Evaluate transaction with strategy engine
-                    match mempool_strategy_engine.evaluate_transaction(&tx).await {
-                        Ok(opportunities) => {
-                            if !opportunities.is_empty() {
-                                info!(
-                                    tx_hash = %tx.transaction.hash,
-                                    opportunity_count = opportunities.len(),
-                                    "Found MEV opportunities from mempool transaction"
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            warn!(
-                                tx_hash = %tx.transaction.hash,
-                                error = %e,
-                                "Failed to evaluate mempool transaction"
-                            );
-                        }
-                    }
-                }
-                
-                if processed_count % 50 == 0 {
-                    let (len, capacity, utilization, dropped) = consumer_service.get_buffer_stats();
-                    info!(
-                        consumed_total = processed_count,
-                        buffer_len = len,
-                        buffer_capacity = capacity,
-                        buffer_utilization = utilization,
-                        dropped_count = dropped,
-                        "Mempool consumer stats"
-                    );
-                }
-            } else {
-                // No transactions, sleep briefly
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            }
-        }
-    });
+    // Mempool monitoring disabled - using HyperLiquid native API only
 
     // Initialize HyperLiquid integration if enabled
     // HyperLiquid uses a dual-channel architecture:
@@ -167,6 +99,13 @@ async fn main() -> anyhow::Result<()> {
         if hl_config.enabled {
             info!("HyperLiquid integration enabled, initializing dual-channel architecture (WebSocket + RPC)...");
             
+            // Load private key from environment variable if config is empty
+            let private_key = if hl_config.private_key.is_empty() {
+                std::env::var("PRIVATE_KEY").unwrap_or_default()
+            } else {
+                hl_config.private_key.clone()
+            };
+            
             // Convert config to HyperLiquid config type
             // Note: The mev-hyperliquid crate has its own config type with optional fields
             let hl_config_typed = HyperLiquidConfig {
@@ -174,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
                 ws_url: hl_config.ws_url.clone(),
                 rpc_url: Some(hl_config.rpc_url.clone()),
                 polling_interval_ms: Some(hl_config.polling_interval_ms),
-                private_key: Some(config.network.private_key.clone()), // Use private key from network config
+                private_key: Some(private_key), // Use private key from environment or config
                 trading_pairs: hl_config.trading_pairs.clone(),
                 subscribe_orderbook: hl_config.subscribe_orderbook,
                 reconnect_min_backoff_secs: hl_config.reconnect_min_backoff_secs,
@@ -211,13 +150,14 @@ async fn main() -> anyhow::Result<()> {
             
             // Initialize trade data adapter for converting market data to transactions
             let adapter = Arc::new(TradeDataAdapter::new_with_metrics(
-                config.network.chain_id,
+                998, // HyperLiquid EVM chain ID
                 hl_config.token_mapping.clone(),
                 hl_metrics.clone(),
             )?);
             
             // Spawn task to process market data events
             let market_data_strategy_engine = strategy_engine.clone();
+            let market_data_metrics = metrics.clone();
             let market_data_handle = tokio::spawn(async move {
                 let mut processed_count = 0u64;
                 
@@ -260,6 +200,9 @@ async fn main() -> anyhow::Result<()> {
                                         processing_time_ms: 0,
                                     };
                                     
+                                    // Record transaction processing metrics
+                                    market_data_metrics.inc_transactions_processed("hyperliquid", "orderbook", false);
+                                    
                                     // Evaluate with strategy engine
                                     match market_data_strategy_engine.evaluate_transaction(&parsed_tx).await {
                                         Ok(opportunities) => {
@@ -296,6 +239,10 @@ async fn main() -> anyhow::Result<()> {
                                     processed_total = processed_count,
                                     "HyperLiquid market data processor stats"
                                 );
+                                
+                                // Update buffer utilization (simulate based on processing rate)
+                                let utilization = if processed_count > 1000 { 75 } else { 25 };
+                                market_data_metrics.set_buffer_utilization("trade_processor", utilization);
                             }
                         }
                         MarketDataEvent::OrderBook(orderbook_data) => {
@@ -402,14 +349,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Start services and wait for shutdown
     tokio::select! {
-        result = mempool_service.start() => {
+        result = monitoring_handle => {
             if let Err(e) = result {
-                error!("Mempool service error: {}", e);
-            }
-        }
-        result = consumer_handle => {
-            if let Err(e) = result {
-                error!("Mempool consumer task error: {}", e);
+                error!("Monitoring server task error: {}", e);
             }
         }
         _ = async {

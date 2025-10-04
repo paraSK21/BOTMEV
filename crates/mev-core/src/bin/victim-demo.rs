@@ -9,7 +9,7 @@ use mev_core::bundle::victim_generator::ExpectedOpportunity;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{info, warn, error};
+use tracing::{info, error};
 
 /// Demo configuration
 #[derive(Debug, Clone)]
@@ -190,7 +190,7 @@ impl MevBotDemo {
         
         // Start execution tracking
         let tracker_handle = {
-            let tracker = Arc::new(&self.execution_tracker);
+            let tracker = self.execution_tracker.clone();
             tokio::spawn(async move {
                 if let Err(e) = tracker.start_monitoring().await {
                     error!("Execution tracker error: {}", e);

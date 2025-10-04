@@ -38,7 +38,7 @@ impl SimulationTester {
         };
 
         let metrics = Arc::new(PrometheusMetrics::new()?);
-        let simulator = Arc::new(ForkSimulator::new(config, metrics).await?);
+        let simulator: Arc<ForkSimulator> = Arc::new(ForkSimulator::new(config, metrics).await?);
         let service = SimulationService::new(simulator.clone());
 
         Ok(Self { simulator, service })
@@ -98,11 +98,29 @@ impl SimulationTester {
         );
 
         // Create a test signer
-        let key_manager = KeyManager::new(None);
-        let signer = Arc::new(TransactionSigner::new(key_manager, 998));
+        let key_manager = KeyManager::new();
+        let signer = Arc::new(TransactionSigner::new(Arc::new(key_manager), 998));
         
-        let bundle = BundleBuilder::new(signer)
-            .build();
+        // Create a dummy opportunity for testing
+        let opportunity = mev_core::Opportunity {
+            id: "test-opportunity".to_string(),
+            strategy_name: "test-strategy".to_string(),
+            target_transaction: tx.clone(),
+            opportunity_type: mev_core::OpportunityType::Arbitrage {
+                token_in: "ETH".to_string(),
+                token_out: "USDC".to_string(),
+                amount_in: 1000000000000000000, // 1 ETH
+                expected_profit: 1000000000000000, // 0.001 ETH
+                dex_path: vec!["UniswapV3".to_string(), "SushiSwap".to_string()],
+            },
+            estimated_profit_wei: 1000000000000000,
+            estimated_gas_cost_wei: 200000,
+            confidence_score: 0.8,
+            metadata: std::collections::HashMap::new(),
+        };
+        
+          let bundle = BundleBuilder::new(signer)
+              .build_bundle(&opportunity).await?;
 
         // Simulate the bundle
         let result = self.simulator.simulate_bundle(bundle).await?;
@@ -140,10 +158,29 @@ impl SimulationTester {
                 if i % 2 == 0 { TargetType::UniswapV2 } else { TargetType::Unknown },
             );
 
-            let key_manager = KeyManager::new(None);
-            let signer = Arc::new(TransactionSigner::new(key_manager, 998));
-            let bundle = BundleBuilder::new(signer)
-                .build();
+            let key_manager = KeyManager::new();
+            let signer = Arc::new(TransactionSigner::new(Arc::new(key_manager), 998));
+            
+            // Create a dummy opportunity for testing
+            let opportunity = mev_core::Opportunity {
+                id: format!("batch-test-opportunity-{}", i),
+                strategy_name: "test-strategy".to_string(),
+                target_transaction: parsed_tx.clone(),
+                opportunity_type: mev_core::OpportunityType::Arbitrage {
+                    token_in: "ETH".to_string(),
+                    token_out: "USDC".to_string(),
+                    amount_in: 1000000000000000000, // 1 ETH
+                    expected_profit: 1000000000000000, // 0.001 ETH
+                    dex_path: vec!["UniswapV3".to_string(), "SushiSwap".to_string()],
+                },
+                estimated_profit_wei: 1000000000000000,
+                estimated_gas_cost_wei: 200000,
+                confidence_score: 0.8,
+                metadata: std::collections::HashMap::new(),
+            };
+            
+          let bundle = BundleBuilder::new(signer)
+              .build_bundle(&opportunity).await?;
 
             bundles.push(bundle);
         }
@@ -204,10 +241,29 @@ impl SimulationTester {
             );
 
             let handle = tokio::spawn(async move {
-                let key_manager = KeyManager::new(None);
-                let signer = Arc::new(TransactionSigner::new(key_manager, 998));
-                let bundle = BundleBuilder::new(signer)
-                    .build();
+                let key_manager = KeyManager::new();
+                let signer = Arc::new(TransactionSigner::new(Arc::new(key_manager), 998));
+                
+                // Create a dummy opportunity for testing
+                let opportunity = mev_core::Opportunity {
+                    id: format!("perf-test-opportunity-{}", i),
+                    strategy_name: "test-strategy".to_string(),
+                    target_transaction: parsed_tx.clone(),
+                    opportunity_type: mev_core::OpportunityType::Arbitrage {
+                        token_in: "ETH".to_string(),
+                        token_out: "USDC".to_string(),
+                        amount_in: 1000000000000000000, // 1 ETH
+                        expected_profit: 1000000000000000, // 0.001 ETH
+                        dex_path: vec!["UniswapV3".to_string(), "SushiSwap".to_string()],
+                    },
+                    estimated_profit_wei: 1000000000000000,
+                    estimated_gas_cost_wei: 200000,
+                    confidence_score: 0.8,
+                    metadata: std::collections::HashMap::new(),
+                };
+                
+          let bundle = BundleBuilder::new(signer)
+              .build_bundle(&opportunity).await?;
 
                 simulator.simulate_bundle(bundle).await
             });
@@ -280,10 +336,29 @@ impl SimulationTester {
             processing_time_ms: 1,
         };
 
-        let key_manager = KeyManager::new(None);
-        let signer = Arc::new(TransactionSigner::new(key_manager, 998));
-        let bundle = BundleBuilder::new(signer)
-            .build();
+        let key_manager = KeyManager::new();
+        let signer = Arc::new(TransactionSigner::new(Arc::new(key_manager), 998));
+        
+        // Create a dummy opportunity for testing
+        let opportunity = mev_core::Opportunity {
+            id: "error-test-opportunity".to_string(),
+            strategy_name: "test-strategy".to_string(),
+            target_transaction: invalid_tx.clone(),
+            opportunity_type: mev_core::OpportunityType::Arbitrage {
+                token_in: "ETH".to_string(),
+                token_out: "USDC".to_string(),
+                amount_in: 1000000000000000000, // 1 ETH
+                expected_profit: 1000000000000000, // 0.001 ETH
+                dex_path: vec!["UniswapV3".to_string(), "SushiSwap".to_string()],
+            },
+            estimated_profit_wei: 1000000000000000,
+            estimated_gas_cost_wei: 200000,
+            confidence_score: 0.8,
+            metadata: std::collections::HashMap::new(),
+        };
+        
+          let bundle = BundleBuilder::new(signer)
+              .build_bundle(&opportunity).await?;
 
         // This should not panic, but return an error result
         let result = self.simulator.simulate_bundle(bundle).await?;

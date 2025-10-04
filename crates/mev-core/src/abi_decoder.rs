@@ -223,6 +223,7 @@ impl OptimizedAbiDecoder {
     }
 
     /// Get a reusable decoder instance from the pool
+    #[allow(dead_code)]
     fn get_decoder_instance(&mut self) -> Result<&mut DecoderInstance> {
         for decoder in &mut self.decoder_pool {
             if !decoder.in_use {
@@ -239,6 +240,7 @@ impl OptimizedAbiDecoder {
     }
 
     /// Return decoder instance to the pool
+    #[allow(dead_code)]
     fn return_decoder_instance(&mut self, decoder: &mut DecoderInstance) {
         decoder.in_use = false;
         decoder.token_buffer.clear();
@@ -246,9 +248,10 @@ impl OptimizedAbiDecoder {
     }
 
     /// Decode parameters using a reusable decoder instance
+    #[allow(dead_code)]
     fn decode_with_instance(
         &self,
-        decoder: &mut DecoderInstance,
+        _decoder: &mut DecoderInstance,
         function_info: &FunctionInfo,
         param_data: &[u8],
     ) -> Result<DecodedInput> {

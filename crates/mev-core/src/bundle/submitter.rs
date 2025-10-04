@@ -55,11 +55,13 @@ pub struct BundleSubmitter {
 /// Tracks the state of an active bundle submission
 #[derive(Debug, Clone)]
 struct SubmissionTracker {
+    #[allow(dead_code)]
     bundle_id: String,
     submission_attempts: u32,
     last_submission_time: Instant,
     current_gas_price: U256,
     original_bundle: Bundle,
+    #[allow(dead_code)]
     submission_hashes: Vec<String>,
 }
 

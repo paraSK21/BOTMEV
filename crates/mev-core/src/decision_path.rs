@@ -160,8 +160,11 @@ pub struct DecisionPathStats {
 
 /// Memory pool for reusing objects to reduce allocations
 struct MemoryPool<T> {
+    #[allow(dead_code)]
     pool: crossbeam::queue::SegQueue<T>,
+    #[allow(dead_code)]
     factory: Box<dyn Fn() -> T + Send + Sync>,
+    #[allow(dead_code)]
     max_size: usize,
 }
 
@@ -184,10 +187,12 @@ impl<T> MemoryPool<T> {
         }
     }
 
+    #[allow(dead_code)]
     fn acquire(&self) -> T {
         self.pool.pop().unwrap_or_else(|| (self.factory)())
     }
 
+    #[allow(dead_code)]
     fn release(&self, item: T) {
         if self.pool.len() < self.max_size {
             self.pool.push(item);
@@ -213,7 +218,9 @@ pub struct DecisionPath {
     output_rx: Receiver<DecisionResult>,
     
     // Memory pools
+    #[allow(dead_code)]
     transaction_pool: Arc<MemoryPool<ParsedTransaction>>,
+    #[allow(dead_code)]
     opportunity_pool: Arc<MemoryPool<Vec<Opportunity>>>,
     
     // Performance tracking
@@ -233,6 +240,7 @@ pub struct DecisionPath {
 struct FilteredTransaction {
     transaction: ParsedTransaction,
     filter_time_ms: f64,
+    #[allow(dead_code)]
     priority: u8,
 }
 

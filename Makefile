@@ -16,8 +16,15 @@ build-dev:
 test:
 	cargo test --lib --bin mev-bot
 
-# Run the bot with your config
+# Run the bot with monitoring stack (everything included)
 run:
+	@echo Starting MEV Bot with full monitoring stack...
+	@echo If Docker is not available, the bot will run in standalone mode.
+	@echo.
+	@powershell -ExecutionPolicy Bypass -File .\scripts\start-all.ps1
+
+# Run bot only (no monitoring stack)
+run-bot-only:
 	cargo run --release --bin mev-bot -- --config config/my-config.yml
 
 # Run with development config
@@ -56,4 +63,4 @@ docker-logs:
 
 # Show help
 help:
-	cargo --version
+	scripts\help.bat

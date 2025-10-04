@@ -840,6 +840,7 @@ impl HyperLiquidWsService {
     }
     
     /// Try to parse a message as a subscription response
+    #[allow(dead_code)]
     fn try_parse_subscription_response(&self, text: &str) -> Result<SubscriptionResponse> {
         // Parse the JSON message
         let value: serde_json::Value = serde_json::from_str(text)?;

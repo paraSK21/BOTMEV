@@ -1,8 +1,9 @@
-network:
-  rpc_url: "https://mainnet.infura.io/v3/YOUR_INFURA_KEY"
-  ws_url: "wss://mainnet.infura.io/ws/v3/YOUR_INFURA_KEY"
-  chain_id: 1  # Ethereum mainnet
-  private_key: ""  # Set in environment variables - NEVER commit real keys
+# Network configuration disabled - using HyperLiquid native API only
+# network:
+#   rpc_url: "https://mainnet.infura.io/v3/YOUR_INFURA_KEY"
+#   ws_url: "wss://mainnet.infura.io/ws/v3/YOUR_INFURA_KEY"
+#   chain_id: 1
+#   private_key: ""
 
 bot:
   max_gas_price: 100000000000  # 100 gwei

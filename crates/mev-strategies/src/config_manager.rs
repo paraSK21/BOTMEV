@@ -225,7 +225,7 @@ impl ConfigManager {
 
     /// Hot reload configuration from file
     pub fn hot_reload(&mut self) -> Result<bool> {
-        let current_modified = fs::metadata(&self.config_path)?.modified()?;
+        let _current_modified = fs::metadata(&self.config_path)?.modified()?;
         
         // For simplicity, always reload. In production, you'd track modification time
         let old_config = self.config_file.clone();

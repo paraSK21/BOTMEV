@@ -2,7 +2,7 @@
 
 use crate::strategy_types::*;
 use anyhow::Result;
-use mev_core::{ParsedTransaction, PrometheusMetrics, SimulationBundle, SimulationResult};
+use mev_core::{ParsedTransaction, PrometheusMetrics};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -167,7 +167,7 @@ impl StrategyEngine {
         for strategy in strategies {
             let permit = semaphore.clone().acquire_owned().await?;
             let strategy_name = strategy.name().to_string();
-            let tx_clone = tx.clone();
+            let _tx_clone = tx.clone();
             let timeout = self.config.evaluation_timeout_ms;
 
             // Note: In a real implementation, you'd need to handle the strategy reference properly

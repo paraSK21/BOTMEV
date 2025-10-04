@@ -59,20 +59,81 @@ impl TradeMessageParser {
         // Parse based on channel type
         let data = match channel.as_str() {
             "trades" => {
-                let trade = self.parse_trade(data_value)?;
-                MessageData::Trade(trade)
+                // HyperLiquid sends trades as an array, so we need to handle multiple trades
+                if let Some(trades_array) = data_value.as_array() {
+                    // For now, we'll process the first trade in the array
+                    // In a production system, you might want to process all trades
+                    if let Some(first_trade) = trades_array.first() {
+                        let trade = self.parse_trade(first_trade)?;
+                        MessageData::Trade(trade)
+                    } else {
+                        return Err(ParseError::MissingField("empty trades array".to_string()));
+                    }
+                } else {
+                    // Fallback: try to parse as single trade object
+                    let trade = self.parse_trade(data_value)?;
+                    MessageData::Trade(trade)
+                }
             }
             "l2Book" => {
                 let orderbook = self.parse_orderbook(data_value)?;
                 MessageData::OrderBook(orderbook)
             }
             "subscriptionResponse" => {
-                let response = self.parse_subscription_response(data_value)?;
-                MessageData::SubscriptionResponse(response)
+                // HyperLiquid subscription response format: {"channel":"subscriptionResponse","data":{"method":"subscribe","subscription":{"type":"trades","coin":"BTC"}}}
+                // The data field contains the subscription details, not a direct response
+                if let Some(method) = data_value.get("method").and_then(|v| v.as_str()) {
+                    if method == "subscribe" {
+                        if let Some(subscription) = data_value.get("subscription") {
+                            let subscription_type = subscription
+                                .get("type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            
+                            let coin = subscription
+                                .get("coin")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            
+                            let response = SubscriptionResponse {
+                                subscription_type,
+                                coin,
+                                success: true,
+                                error: None,
+                            };
+                            MessageData::SubscriptionResponse(response)
+                        } else {
+                            return Err(ParseError::MissingField("subscription".to_string()));
+                        }
+                    } else {
+                        // Fallback: try to parse as regular subscription response
+                        let response = self.parse_subscription_response(data_value)?;
+                        MessageData::SubscriptionResponse(response)
+                    }
+                } else {
+                    // Fallback: try to parse as regular subscription response
+                    let response = self.parse_subscription_response(data_value)?;
+                    MessageData::SubscriptionResponse(response)
+                }
             }
             "error" => {
-                let error = self.parse_error(data_value)?;
-                MessageData::Error(error)
+                // HyperLiquid error format: {"channel":"error","data":"Already subscribed: {...}"}
+                // The data field is a string, not an object
+                let error_message = if let Some(message_str) = data_value.as_str() {
+                    message_str.to_string()
+                } else {
+                    // Fallback: try to parse as error object
+                    let error = self.parse_error(data_value)?;
+                    return Ok(HyperLiquidMessage::new(channel, MessageData::Error(error)));
+                };
+                
+                let error_data = ErrorData {
+                    code: None,
+                    message: error_message,
+                };
+                MessageData::Error(error_data)
             }
             _ => {
                 warn!("Unknown channel type: {}", channel);
@@ -115,9 +176,19 @@ impl TradeMessageParser {
 
         let trade_id = data
             .get("tid")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ParseError::MissingField("tid".to_string()))?
-            .to_string();
+            .map(|v| {
+                // Handle both string and number trade IDs
+                if let Some(s) = v.as_str() {
+                    s.to_string()
+                } else if let Some(n) = v.as_u64() {
+                    n.to_string()
+                } else if let Some(n) = v.as_i64() {
+                    n.to_string()
+                } else {
+                    "unknown".to_string()
+                }
+            })
+            .ok_or_else(|| ParseError::MissingField("tid".to_string()))?;
 
         Ok(TradeData {
             coin,

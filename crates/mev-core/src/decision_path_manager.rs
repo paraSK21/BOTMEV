@@ -54,6 +54,7 @@ pub struct DecisionPathManagerStats {
 pub struct DecisionPathManager {
     config: DecisionPathManagerConfig,
     decision_path: Arc<DecisionPath>,
+    #[allow(dead_code)]
     strategy_engine: Arc<MockStrategyEngine>,
     metrics: Arc<PrometheusMetrics>,
     

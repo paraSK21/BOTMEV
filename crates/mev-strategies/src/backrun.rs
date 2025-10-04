@@ -5,7 +5,7 @@ use anyhow::Result;
 use mev_core::{ParsedTransaction, SimulationBundle, SimulationResult, TargetType};
 use serde_json::json;
 use std::collections::HashMap;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Backrun strategy that follows large transactions to capture price movements
 pub struct BackrunStrategy {

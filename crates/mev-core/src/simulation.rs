@@ -712,6 +712,7 @@ async fn simulate_bundles_batch(
     }
 }
 
+#[allow(dead_code)]
 async fn get_stats(
     State(service): State<Arc<SimulationService>>,
 ) -> Json<SimulationStats> {

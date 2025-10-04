@@ -40,6 +40,7 @@ pub struct KeyManager {
     /// Default wallet for signing
     default_wallet: Arc<RwLock<Option<LocalWallet>>>,
     /// Key file directory
+    #[allow(dead_code)]
     key_dir: Option<std::path::PathBuf>,
 }
 
@@ -191,7 +192,7 @@ impl KeyManager {
         // Derive key from password using PBKDF2
         let iterations = 100_000;
         let mut derived_key = [0u8; 32];
-        pbkdf2::<Hmac<Sha256>>(password.as_bytes(), &salt, iterations, &mut derived_key);
+        let _ = pbkdf2::<Hmac<Sha256>>(password.as_bytes(), &salt, iterations, &mut derived_key);
         
         // Encrypt the private key
         let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&derived_key);
@@ -243,7 +244,7 @@ impl KeyManager {
         
         // Derive key from password
         let mut derived_key = [0u8; 32];
-        pbkdf2::<Hmac<Sha256>>(
+        let _ = pbkdf2::<Hmac<Sha256>>(
             password.as_bytes(),
             &salt,
             encrypted_key.kdf_params.iterations,

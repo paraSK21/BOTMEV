@@ -23,6 +23,10 @@ async fn main() -> Result<()> {
     let ws_endpoint = env::var("WS_ENDPOINT")
         .unwrap_or_else(|_| "ws://localhost:8546".to_string());
 
+    // Get RPC endpoint from environment or use default
+    let rpc_endpoint = env::var("RPC_ENDPOINT")
+        .unwrap_or_else(|_| "http://localhost:8545".to_string());
+
     // Get metrics port from environment or use default
     let metrics_port: u16 = env::var("METRICS_PORT")
         .unwrap_or_else(|_| "9090".to_string())
@@ -30,10 +34,11 @@ async fn main() -> Result<()> {
         .unwrap_or(9090);
 
     info!("Connecting to WebSocket endpoint: {}", ws_endpoint);
+    info!("Connecting to RPC endpoint: {}", rpc_endpoint);
     info!("Starting metrics server on port: {}", metrics_port);
 
     // Create mempool service
-    let mempool_service = MempoolService::new(ws_endpoint)?;
+    let mempool_service = MempoolService::new(ws_endpoint, rpc_endpoint)?;
     let metrics = mempool_service.get_metrics();
     
     // Start metrics server

@@ -241,8 +241,8 @@ impl StrategyRegistry {
     }
 
     /// Get a strategy by name
-    pub async fn get_strategy(&self, name: &str) -> Option<Box<dyn Strategy>> {
-        let strategies = self.strategies.read().await;
+    pub async fn get_strategy(&self, _name: &str) -> Option<Box<dyn Strategy>> {
+        let _strategies = self.strategies.read().await;
         // Note: This is a simplified version. In practice, you'd need to handle cloning differently
         // since Box<dyn Strategy> doesn't implement Clone
         None // Placeholder

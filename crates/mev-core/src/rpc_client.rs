@@ -422,6 +422,7 @@ impl RpcClientStats {
 
 /// Connection pool manager for WebSocket connections
 pub struct WebSocketPool {
+    #[allow(dead_code)]
     connections: Arc<RwLock<Vec<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>>>,
     config: RpcClientConfig,
 }

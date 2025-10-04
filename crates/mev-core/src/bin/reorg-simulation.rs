@@ -12,11 +12,10 @@ use mev_core::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::{fs::File, io::AsyncWriteExt, time::sleep};
-use tracing::{error, info, warn};
+use tracing::{info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReorgSimulationResult {

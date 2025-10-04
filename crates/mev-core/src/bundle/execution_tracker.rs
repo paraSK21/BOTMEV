@@ -54,31 +54,41 @@ pub struct ExecutionTracker {
 #[derive(Debug, Clone)]
 struct TrackedBundle {
     bundle: Bundle,
+    #[allow(dead_code)]
     submission_result: SubmissionResult,
     tracking_start: Instant,
     status: ExecutionStatus,
     inclusion_attempts: u32,
     last_check_block: u64,
+    #[allow(dead_code)]
     transaction_receipts: HashMap<String, TransactionReceipt>,
 }
 
 /// Transaction receipt information
 #[derive(Debug, Clone)]
 struct TransactionReceipt {
+    #[allow(dead_code)]
     transaction_hash: String,
+    #[allow(dead_code)]
     block_number: u64,
+    #[allow(dead_code)]
     block_hash: String,
     transaction_index: u64,
     gas_used: u64,
+    #[allow(dead_code)]
     status: bool, // true = success, false = failed
+    #[allow(dead_code)]
     logs: Vec<LogEntry>,
 }
 
 /// Log entry from transaction receipt
 #[derive(Debug, Clone)]
 struct LogEntry {
+    #[allow(dead_code)]
     address: String,
+    #[allow(dead_code)]
     topics: Vec<String>,
+    #[allow(dead_code)]
     data: String,
 }
 
@@ -543,8 +553,11 @@ impl ExecutionTracker {
 /// Simplified block information
 #[derive(Debug, Clone)]
 struct BlockInfo {
+    #[allow(dead_code)]
     number: u64,
+    #[allow(dead_code)]
     hash: String,
+    #[allow(dead_code)]
     timestamp: String,
     transactions: Vec<TransactionInfo>,
 }
@@ -553,8 +566,11 @@ struct BlockInfo {
 #[derive(Debug, Clone)]
 struct TransactionInfo {
     hash: String,
+    #[allow(dead_code)]
     from: String,
+    #[allow(dead_code)]
     to: Option<String>,
+    #[allow(dead_code)]
     gas_price: String,
 }
 

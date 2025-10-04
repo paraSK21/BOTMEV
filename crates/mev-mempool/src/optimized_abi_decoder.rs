@@ -174,6 +174,7 @@ impl OptimizedAbiDecoder {
                 name: name.to_string(),
                 inputs: vec![], // Simplified - would need proper inputs for full decoding
                 outputs: vec![],
+                #[allow(deprecated)]
                 constant: Some(false),
                 state_mutability: ethabi::StateMutability::NonPayable,
             };
@@ -389,6 +390,7 @@ impl OptimizedAbiDecoder {
             name: name.to_string(),
             inputs: vec![],
             outputs: vec![],
+            #[allow(deprecated)]
             constant: Some(false),
             state_mutability: ethabi::StateMutability::NonPayable,
         };

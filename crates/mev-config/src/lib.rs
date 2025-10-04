@@ -5,7 +5,7 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub network: NetworkConfig,
+    pub network: Option<NetworkConfig>,
     pub bot: BotConfig,
     pub performance: Option<PerformanceConfig>,
     pub monitoring: MonitoringConfig,
@@ -22,6 +22,8 @@ pub struct HyperLiquidConfig {
     // RPC configuration for blockchain operations
     pub rpc_url: String,
     pub polling_interval_ms: u64,
+    // Private key for transaction signing
+    pub private_key: String,
     // Reconnection settings (for WebSocket)
     pub reconnect_min_backoff_secs: u64,
     pub reconnect_max_backoff_secs: u64,
@@ -129,24 +131,7 @@ impl Config {
     pub fn load_from_env() -> anyhow::Result<Self> {
         dotenv::dotenv().ok();
         let config = Config {
-            network: NetworkConfig {
-                rpc_url: std::env::var("RPC_URL")
-                    .unwrap_or_else(|_| "http://localhost:8545".to_string()),
-                ws_url: std::env::var("WS_URL")
-                    .unwrap_or_else(|_| "ws://localhost:8546".to_string()),
-                chain_id: std::env::var("CHAIN_ID")
-                    .unwrap_or_else(|_| "1".to_string())
-                    .parse()
-                    .unwrap_or(1),
-                private_key: std::env::var("PRIVATE_KEY").unwrap_or_default(),
-                mempool_mode: std::env::var("MEMPOOL_MODE").ok(),
-                polling_interval_ms: std::env::var("POLLING_INTERVAL_MS")
-                    .ok()
-                    .and_then(|s| s.parse().ok()),
-                websocket_timeout_secs: std::env::var("WEBSOCKET_TIMEOUT_SECS")
-                    .ok()
-                    .and_then(|s| s.parse().ok()),
-            },
+            network: None, // Disabled for HyperLiquid-only operation
             bot: BotConfig {
                 max_gas_price: std::env::var("MAX_GAS_PRICE")
                     .unwrap_or_else(|_| "100000000000".to_string())

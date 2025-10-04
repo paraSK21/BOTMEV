@@ -1,21 +1,3 @@
-# HyperEVM Network Configuration
-network:
-  # Option 1: Official HyperLiquid public RPC
-  rpc_url: "https://rpc.hyperliquid.xyz/evm"
-  ws_url: "wss://rpc.hyperliquid.xyz/evm"
-  
-  # Option 2: Your QuickNode URLs (Premium)
-  # rpc_url: "https://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/evm"
-  # ws_url: "wss://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/"
-  
-  chain_id: 998  # HyperEVM mainnet
-  private_key: ""  # Leave empty - use environment variable for security
-  
-  # Mempool monitoring configuration
-  mempool_mode: "auto"  # auto (try websocket, fallback to polling), websocket, polling
-  polling_interval_ms: 300  # Polling interval when using HTTP polling mode
-  websocket_timeout_secs: 3  # Timeout for WebSocket subscription attempt
-
 # ============================================================================
 # HyperLiquid Dual-Channel Architecture Configuration
 # ============================================================================
@@ -61,6 +43,9 @@ hyperliquid:
   # Replace with your QuickNode endpoint URL:
   rpc_url: "https://cosmopolitan-quaint-voice.hype-mainnet.quiknode.pro/a9505f9f6a8b4c02dc0e27392eefc2d44ff1aec1/evm"
   
+  # Private key for transaction signing (use environment variable for security)
+  private_key: ""  # Will be loaded from environment variable at runtime
+  
   # Polling interval for RPC blockchain state queries (in milliseconds)
   # Default: 1000ms (1 second) - adjust based on your latency requirements
   # Lower values = more frequent updates but higher RPC usage
@@ -89,14 +74,21 @@ hyperliquid:
     ETH: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"  # WETH on Ethereum
     SOL: "0x5288738df1aB05A68337cB9dD7a607285Ac3Cf90"  # SOL (example address)
     ARB: "0x912CE59144191C1204E64559FE8253a0e49E6548"  # ARB token
+    USDC: "0xA0b86a33E6441b8c4C8C0C8C0C8C0C8C0C8C0C8C"  # USDC on Ethereum (for arbitrage)
 
 # Bot Configuration
 bot:
   max_gas_price: 50000000000   # 50 gwei (adjust based on network conditions)
-  min_profit_threshold: 0.01   # 1% minimum profit (adjust for your risk tolerance)
+  min_profit_threshold: 0.005  # 0.5% minimum profit for arbitrage (lower threshold for more opportunities)
   strategies:
     - "arbitrage"
-    - "backrun"
+  
+  # Arbitrage-specific settings
+  arbitrage:
+    max_slippage: 0.001        # 0.1% max slippage
+    min_volume_usd: 1000       # Minimum $1000 volume for arbitrage
+    max_position_size: 0.1     # Maximum 10% of portfolio per trade
+    cross_exchange_enabled: true  # Enable cross-exchange arbitrage
 
 # Performance Settings
 performance:
@@ -114,5 +106,5 @@ performance:
 
 # Monitoring
 monitoring:
-  prometheus_port: 9090
+  prometheus_port: 9091  # Changed from 9090 to avoid conflict
   log_level: "info"  # Use "debug" for more detailed logs

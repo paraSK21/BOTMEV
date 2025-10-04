@@ -12,12 +12,12 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "histogram_quantile(0.50, rate(mev_detection_latency_seconds_bucket[5m])) * 1000",
+            "expr": "histogram_quantile(0.50, rate(mev_decision_latency_seconds_bucket[5m])) * 1000",
             "legendFormat": "Median (ms)",
             "refId": "A"
           },
           {
-            "expr": "histogram_quantile(0.95, rate(mev_detection_latency_seconds_bucket[5m])) * 1000",
+            "expr": "histogram_quantile(0.95, rate(mev_decision_latency_seconds_bucket[5m])) * 1000",
             "legendFormat": "P95 (ms)",
             "refId": "B"
           }
@@ -101,17 +101,17 @@
         "type": "timeseries",
         "targets": [
           {
-            "expr": "histogram_quantile(0.50, rate(mev_detection_latency_seconds_bucket[5m])) * 1000",
+            "expr": "histogram_quantile(0.50, rate(mev_decision_latency_seconds_bucket[5m])) * 1000",
             "legendFormat": "Median",
             "refId": "A"
           },
           {
-            "expr": "histogram_quantile(0.95, rate(mev_detection_latency_seconds_bucket[5m])) * 1000",
+            "expr": "histogram_quantile(0.95, rate(mev_decision_latency_seconds_bucket[5m])) * 1000",
             "legendFormat": "P95",
             "refId": "B"
           },
           {
-            "expr": "histogram_quantile(0.99, rate(mev_detection_latency_seconds_bucket[5m])) * 1000",
+            "expr": "histogram_quantile(0.99, rate(mev_decision_latency_seconds_bucket[5m])) * 1000",
             "legendFormat": "P99",
             "refId": "C"
           }
@@ -297,12 +297,12 @@
         "type": "table",
         "targets": [
           {
-            "expr": "histogram_quantile(0.50, rate(mev_detection_latency_seconds_bucket[5m])) * 1000",
+            "expr": "histogram_quantile(0.50, rate(mev_decision_latency_seconds_bucket[5m])) * 1000",
             "legendFormat": "Detection Latency (median ms)",
             "refId": "A"
           },
           {
-            "expr": "histogram_quantile(0.95, rate(mev_detection_latency_seconds_bucket[5m])) * 1000",
+            "expr": "histogram_quantile(0.95, rate(mev_decision_latency_seconds_bucket[5m])) * 1000",
             "legendFormat": "Detection Latency (p95 ms)",
             "refId": "B"
           },

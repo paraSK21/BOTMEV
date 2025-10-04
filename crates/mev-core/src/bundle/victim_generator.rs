@@ -76,12 +76,15 @@ pub struct VictimTransaction {
 /// Victim generator for creating predictable test scenarios
 pub struct VictimGenerator {
     /// Configuration
+    #[allow(dead_code)]
     config: VictimGeneratorConfig,
     /// HTTP client for RPC calls
+    #[allow(dead_code)]
     client: Client,
     /// Scheduled victim transactions
     scheduled_victims: Arc<RwLock<HashMap<String, VictimTransaction>>>,
     /// Transaction signer for victim transactions
+    #[allow(dead_code)]
     signer: crate::bundle::TransactionSigner,
 }
 
@@ -222,6 +225,7 @@ impl VictimGenerator {
     }
     
     /// Execute a scheduled victim transaction
+    #[allow(dead_code)]
     async fn execute_victim_transaction(&self, victim_id: &str) -> Result<String> {
         let victim = {
             let scheduled = self.scheduled_victims.read().await;
@@ -264,6 +268,7 @@ impl VictimGenerator {
     }
     
     /// Encode swap transaction data
+    #[allow(dead_code)]
     async fn encode_swap_transaction(&self, victim: &VictimTransaction) -> Result<Bytes> {
         // In a real implementation, this would encode the actual swap function call
         // For now, create deterministic dummy data based on the swap parameters
@@ -295,6 +300,7 @@ impl VictimGenerator {
     }
     
     /// Submit transaction to the network
+    #[allow(dead_code)]
     async fn submit_transaction(&self, raw_tx: &Bytes) -> Result<String> {
         let response = self.client
             .post(&self.config.rpc_endpoint)

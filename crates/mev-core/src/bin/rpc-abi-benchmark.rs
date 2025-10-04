@@ -3,9 +3,8 @@
 use anyhow::Result;
 use mev_core::{
     OptimizedAbiDecoder, OptimizedRpcClient, RpcClientConfig, BinaryRpcClient,
-    PrometheusMetrics,
 };
-use std::{sync::Arc, time::Instant};
+use std::{time::Instant};
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
 use tracing_subscriber;

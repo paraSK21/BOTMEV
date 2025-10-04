@@ -47,6 +47,7 @@ pub struct MainnetDryRun {
     client: Client,
     bundle_submitter: Arc<BundleSubmitter>,
     execution_tracker: Arc<ExecutionTracker>,
+    #[allow(dead_code)]
     victim_generator: Arc<VictimGenerator>,
     /// Metrics collected during dry run
     metrics: Arc<RwLock<DryRunMetrics>>,

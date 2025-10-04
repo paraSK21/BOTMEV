@@ -5,7 +5,7 @@ use anyhow::Result;
 use mev_core::{ParsedTransaction, SimulationBundle, SimulationResult, TargetType};
 use serde_json::json;
 use std::collections::HashMap;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Arbitrage strategy that finds price differences across DEXs
 pub struct ArbitrageStrategy {
